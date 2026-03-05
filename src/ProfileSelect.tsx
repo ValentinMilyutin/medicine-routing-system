@@ -1,5 +1,3 @@
-import React from "react";
-
 export type ProfileKey = "obgyn" | "oncology";
 
 export default function ProfileSelect(props: {
