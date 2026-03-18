@@ -1,11 +1,8 @@
 import React, { useMemo, useState } from "react";
 
-type Scenario = "pregnancy_hosp" | "delivery" | "postpartum_le42" | "transfer";
-type GestationBucket = "le22" | "gt22";
+type Scenario = "gyne_lt37" | "obstetrics_ge37" | "postpartum_le42";
 type InfectionType = "none" | "arvi_pneumo" | "flu_covid";
 type RiskGroup = "low" | "mid" | "high";
-type TransferFrom = "starorusskaya_crb" | "pestovskaya_crb" | "other";
-type Condition = "stable" | "severe";
 
 type TerritoryGroup = "borovichi" | "staraya_russa" | "valdai" | "novgorod" | "unknown";
 
@@ -17,7 +14,7 @@ type CriticalKind =
   | "teo_cardiac"
   | "other";
 
-type CriticalRoute = "obstetric_arkc" | "profile_nokb";
+type CriticalRoute = "kas_arkc" | "profile_nokb";
 
 type PostpartumIssue =
   | "bleeding"
@@ -27,7 +24,7 @@ type PostpartumIssue =
   | "teo_cardiac"
   | "postop_pain_other";
 
-type SurgeryProfile = "city" | "regional"; // MVP: ЦГКБ vs НОКБ (для ≤22 при угрозе жизни)
+type SurgeryProfile = "city" | "regional";
 
 type Lpu = { id: string; name: string; notes?: string };
 
@@ -35,15 +32,14 @@ type FormState = {
   scenario?: Scenario;
 
   territory?: string;
-  gestation?: GestationBucket;
 
-  // triage
+  // triage / severity
   critical?: boolean;
   criticalKind?: CriticalKind;
   criticalRoute?: CriticalRoute;
 
   infectionType?: InfectionType;
-  infectionSevere?: boolean; // важно: true/false, не undefined
+  infectionSevere?: boolean;
   infectionOver7Days?: boolean;
 
   trauma?: boolean;
@@ -58,15 +54,9 @@ type FormState = {
   // ordinary
   pretermLabor?: boolean;
   canDeliverToNokpc?: boolean;
-
   riskDelivery?: RiskGroup;
-  riskPregnancy?: RiskGroup;
 
   postpartumIssue?: PostpartumIssue;
-
-  // transfer
-  transferFrom?: TransferFrom;
-  transferCondition?: Condition;
 };
 
 type RoutingResult = {
@@ -96,6 +86,7 @@ const LPU = {
   } as Lpu,
 };
 
+// Акушерские/общие территориальные группы для override-веток
 const TERRITORIES_BOROVICHI = [
   "Боровичи",
   "Боровичский район",
@@ -106,11 +97,17 @@ const TERRITORIES_BOROVICHI = [
   "Окуловский",
 ];
 
-const TERRITORIES_STARAYA_RUSSA = ["Старая Русса", "Старорусский", "Парфинский", "Поддорский", "Холмский", "Волотовский"];
+const TERRITORIES_STARAYA_RUSSA = [
+  "Старая Русса",
+  "Старорусский",
+  "Парфинский",
+  "Поддорский",
+  "Холмский",
+  "Волотовский",
+];
 
 const TERRITORIES_VALDAI = ["Валдайский", "Крестецкий", "Демянский", "Марёвский"];
 
-// “Новгородская группа” (в MVP — всё остальное, включая В. Новгород и близлежащие округа)
 const TERRITORIES_NOVGOROD = [
   "Великий Новгород",
   "Новгородский район",
@@ -119,7 +116,40 @@ const TERRITORIES_NOVGOROD = [
   "Маловишерский",
   "Чудовский",
   "Солецкий",
-  // при необходимости можно расширить
+];
+
+// Гинекология (<37): экстренная госпитализация по 792-Д
+const GYN_LT37_CGKB = [
+  "Великий Новгород",
+  "Батецкий",
+  "Новгородский район",
+  "Чудовский",
+  "Маловишерский",
+  "Мошенской",
+  "Мошенской район",
+];
+
+const GYN_LT37_VALDAI = ["Валдайский", "Крестецкий", "Демянский", "Марёвский"];
+
+const GYN_LT37_BOR = [
+  "Боровичи",
+  "Боровичский район",
+  "Любытинский",
+  "Хвойнинский",
+  "Окуловский",
+];
+
+const GYN_LT37_PESTO = ["Пестовский"];
+
+const GYN_LT37_STAR = [
+  "Старая Русса",
+  "Старорусский",
+  "Парфинский",
+  "Поддорский",
+  "Холмский",
+  "Волотовский",
+  "Солецкий",
+  "Шимский",
 ];
 
 function groupOfTerritory(t?: string): TerritoryGroup {
@@ -131,27 +161,41 @@ function groupOfTerritory(t?: string): TerritoryGroup {
   return "unknown";
 }
 
-type Branch = "critical" | "infection" | "trauma" | "surgery" | "extragenital" | "ordinary";
+function isGyneScenario(s: FormState): boolean {
+  return s.scenario === "gyne_lt37";
+}
 
-function deriveBranch(s: FormState): Branch {
-  if (s.critical) return "critical";
-  if (s.infectionType && s.infectionType !== "none") return "infection";
-  if (s.trauma) return "trauma";
-  if (s.surgery) return "surgery";
-  if (s.extragenitalInpatient) return "extragenital";
-  return "ordinary";
+function isObstetricsScenario(s: FormState): boolean {
+  return s.scenario === "obstetrics_ge37";
+}
+
+function isPostpartumScenario(s: FormState): boolean {
+  return s.scenario === "postpartum_le42";
+}
+
+function gynLt37EmergencyTargetByTerritory(t?: string): Lpu {
+  if (!t) return LPU.CGKB;
+  if (GYN_LT37_CGKB.includes(t)) return LPU.CGKB;
+  if (GYN_LT37_VALDAI.includes(t)) return LPU.VALDAI;
+  if (GYN_LT37_BOR.includes(t)) return LPU.BOR;
+  if (GYN_LT37_PESTO.includes(t)) return LPU.PESTO;
+  if (GYN_LT37_STAR.includes(t)) return LPU.STAR;
+  return LPU.CGKB;
 }
 
 function nearestByTerritory(tg: TerritoryGroup): Lpu {
-  return tg === "borovichi" ? LPU.BOR : tg === "staraya_russa" ? LPU.STAR : tg === "valdai" ? LPU.VALDAI : LPU.CGKB;
+  return tg === "borovichi"
+    ? LPU.BOR
+    : tg === "staraya_russa"
+    ? LPU.STAR
+    : tg === "valdai"
+    ? LPU.VALDAI
+    : LPU.CGKB;
 }
 
 function traumaIcuTargetByTerritory(t?: string): Lpu {
-  // Уточнение: если требуется реанимация — в ближайшее место, где есть ОАРИТ:
-  // Великий Новгород, Боровичи, Пестово, Старая Русса, Валдай.
   if (!t) return LPU.CGKB;
 
-  // "Пестово" — выделяем отдельно (хотя "Пестовский" входит в borovichi-группу)
   if (t === "Пестовский" || t === "Пестово") return LPU.PESTO;
 
   const tg = groupOfTerritory(t);
@@ -159,81 +203,213 @@ function traumaIcuTargetByTerritory(t?: string): Lpu {
   if (tg === "staraya_russa") return LPU.STAR;
   if (tg === "valdai") return LPU.VALDAI;
 
-  // "novgorod" и прочее/unknown → Великий Новгород (MVP: ЦГКБ)
   return LPU.CGKB;
 }
 
-function evalRouting(s: FormState): RoutingResult | null {
-  if (!s.scenario) return null;
+type Branch = "infection" | "trauma" | "surgery" | "extragenital" | "critical" | "ordinary";
 
-  const tg = groupOfTerritory(s.territory);
-  const branch = deriveBranch(s);
+function deriveBranch(s: FormState): Branch {
+  if (s.infectionType && s.infectionType !== "none") return "infection";
+  if (s.trauma) return "trauma";
+  if (s.surgery) return "surgery";
+  if (s.extragenitalInpatient) return "extragenital";
+  if (s.critical) return "critical";
+  return "ordinary";
+}
 
-  // A) critical
-  if (branch === "critical") {
-    const route: CriticalRoute = s.criticalRoute ?? "obstetric_arkc";
-    const target = route === "obstetric_arkc" ? LPU.NOKPC : LPU.NOKB;
+function routeCriticalObstetricLike(s: FormState): RoutingResult {
+  const route: CriticalRoute = s.criticalRoute ?? "kas_arkc";
+  const target = route === "kas_arkc" ? LPU.NOKPC : LPU.NOKB;
 
+  return {
+    target,
+    transport:
+      route === "kas_arkc"
+        ? "СМП (экстренно) + уведомление/вызов АРКЦ НОКПЦ (выездная анестезиолого-реанимационная акушерская бригада при необходимости)"
+        : "СМП (экстренно) в профильный стационар",
+    callouts: [
+      s.criticalKind ? `Критическое состояние: ${labelCriticalKind(s.criticalKind)}` : "Критическое состояние: да",
+      route === "kas_arkc" ? "Маршрут: Критическое акшерское состояние (КАС) → НОКПЦ (АРКЦ)" : "Маршрут: профильная/общесоматическая критика → НОКБ",
+    ],
+    sources: [
+      route === "kas_arkc"
+        ? "Прил. 5: неотложные состояния (АРКЦ НОКПЦ)"
+        : "Схема: профильная/общесоматическая критика → НОКБ",
+    ],
+  };
+}
+
+function routeGyneLt37(s: FormState): RoutingResult | null {
+  if (!s.territory) return null;
+
+  if (s.extragenitalInpatient) {
     return {
-      target,
-      transport:
-        route === "obstetric_arkc"
-          ? "СМП (экстренно) + уведомление/вызов АРКЦ НОКПЦ (выездная анестезиолого-реанимационная акушерская бригада при необходимости)"
-          : "СМП (экстренно) в профильный стационар",
+      target: LPU.NOKB,
+      transport: "СМП (экстренно)",
       callouts: [
-        s.criticalKind ? `Критика: ${labelCriticalKind(s.criticalKind)}` : "Критика: да",
-        route === "obstetric_arkc" ? "Маршрут: акушерская критика → НОКПЦ (АРКЦ)" : "Маршрут: профильная/общесоматическая критика → НОКБ",
-        "Перебивает остальные ветки",
+        "Профиль: гинекология (<37 недель)",
+        "Тяжёлая экстрагенитальная патология → НОКБ",
       ],
-      sources: [
-        route === "obstetric_arkc"
-          ? "Прил. 5: неотложные состояния (АРКЦ НОКПЦ)"
-          : "Схема: профильная/общесоматическая критика → НОКБ",
-      ],
+      sources: ["Приказ 792-Д: столбец «Госпитализация пациенток с тяжёлой экстрагенитальной патологией» → НОКБ"],
     };
   }
 
-  // B) infection
-  if (branch === "infection") {
-    if (s.infectionType === "flu_covid") {
-      return {
-        target: LPU.NOIB,
-        transport: "СМП",
-        callouts: ["Инфекция: грипп/COVID"],
-        sources: ["Схема: «Грипп и COVID → Новгородская областная инфекционная больница»"],
-      };
-    }
+  const target = gynLt37EmergencyTargetByTerritory(s.territory);
 
-    if (s.infectionType === "arvi_pneumo") {
-      // severe
-      if (s.infectionSevere) {
-        const useNokpc = !!s.infectionOver7Days; // опционально по схеме
-        return {
-          target: useNokpc ? LPU.NOKPC : LPU.NOKB,
-          transport: "СМП (с учётом тяжести), при необходимости согласование",
-          callouts: [
-            "Инфекция: ОРВИ/пневмония",
-            "Тяжёлое состояние",
-            useNokpc ? "Опция по схеме: >7 дней → НОКПЦ" : "Маршрут на НОКБ",
-          ],
-          sources: ["Схема: «Беременные с пневмонией/ОРВИ» (тяжёлые состояния)"],
-        };
-      }
+  return {
+    target,
+    transport: target.id === LPU.VALDAI.id ? "СМП (экстренно, по согласованию)" : "СМП (экстренно)",
+    callouts: [
+      "Профиль: гинекология (<37 недель)",
+      s.critical
+        ? "Критическое/срочное состояние → экстренная госпитализация по территории"
+        : "Экстренная госпитализация по территории",
+    ],
+    sources: ["Приказ 792-Д: столбец «Экстренная госпитализация»"],
+  };
+}
 
-      // mild/moderate → by territory (MVP)
-      const target = tg === "borovichi" ? LPU.BOR : tg === "staraya_russa" ? LPU.STAR : LPU.CGKB;
+function routeObstetrics(s: FormState): RoutingResult | null {
+  if (!s.territory) return null;
 
-      return {
-        target,
-        transport: "СМП",
-        callouts: ["Инфекция: ОРВИ/пневмония", "Лёгкое/среднее течение → по территории"],
-        sources: ["Схема: «Пневмония и ОРВИ» (по территориям → Боровичи/Старая Русса/ЦГКБ)"],
-      };
-    }
+  const tg = groupOfTerritory(s.territory);
+
+  if (s.critical) {
+    return routeCriticalObstetricLike(s);
   }
 
-  // C) trauma / ДТП
-  if (branch === "trauma") {
+  if (s.pretermLabor) {
+    const can = s.canDeliverToNokpc ?? true;
+    if (can) {
+      return {
+        target: LPU.NOKPC,
+        transport: "СМП (экстренно/неотложно)",
+        callouts: ["Подозрение на преждевременные роды", "Цель: НОКПЦ"],
+        sources: ["Преждевременные роды → НОКПЦ"],
+      };
+    }
+
+    const target = nearestByTerritory(tg);
+    return {
+      target,
+      alternative: LPU.NOKPC,
+      transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
+      callouts: [
+        "Подозрение на преждевременные роды",
+        "Доставка в НОКПЦ невозможна → ближайший стационар",
+        "Параллельно: уведомление/вызов АРКЦ НОКПЦ при необходимости",
+      ],
+      sources: ["MVP: запасной вариант при невозможности доставки в НОКПЦ"],
+    };
+  }
+
+  if (!s.riskDelivery) return null;
+
+  if (s.riskDelivery === "mid" || s.riskDelivery === "high") {
+    return {
+      target: LPU.NOKPC,
+      transport: "СМП",
+      callouts: [`Акушерство: риск ${labelRisk(s.riskDelivery)} → НОКПЦ`],
+      sources: ["Прил.2: средний/высокий риск → НОКПЦ"],
+    };
+  }
+
+  const target =
+    tg === "borovichi"
+      ? LPU.BOR
+      : tg === "valdai"
+      ? LPU.VALDAI
+      : tg === "staraya_russa"
+      ? LPU.STAR
+      : LPU.NOKPC;
+
+  const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
+
+  return {
+    target,
+    alternative,
+    transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
+    callouts: ["Акушерство: низкий риск → по территории"],
+    sources: ["Конспект: низкий риск (территории → НОКПЦ/Боровичи/Валдайский ММЦ)"],
+  };
+}
+
+function routePostpartum(s: FormState): RoutingResult | null {
+  const tg = groupOfTerritory(s.territory);
+
+  if (s.critical) {
+    return routeCriticalObstetricLike(s);
+  }
+
+  if (!s.postpartumIssue) return null;
+
+  const criticalLike: PostpartumIssue[] = [
+    "bleeding",
+    "sepsis_fever",
+    "seizures_hypertensive",
+    "resp_failure",
+    "teo_cardiac",
+  ];
+
+  if (criticalLike.includes(s.postpartumIssue)) {
+    return {
+      target: LPU.NOKPC,
+      transport: "СМП (экстренно) + уведомление/вызов АРКЦ НОКПЦ при необходимости",
+      callouts: [`Послеродовый ≤42 дней: ${labelPostpartum(s.postpartumIssue)} → критическая маршрутизация (Маршрут: Критическое акyшерское состояние (КАС))`],
+      sources: ["Прил. 5: неотложные состояния в послеродовом периоде (АРКЦ НОКПЦ)"],
+    };
+  }
+
+  const target = tg === "borovichi" ? LPU.BOR : tg === "valdai" ? LPU.VALDAI : LPU.NOKPC;
+  const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
+
+  return {
+    target,
+    alternative,
+    transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
+    callouts: ["Послеродовый ≤42 дней: прочее осложнение → по территории"],
+    sources: ["Упрощение: послеродовое прочее → как акушерский стационар по территории"],
+  };
+}
+
+function routeSpecialOverrides(s: FormState): RoutingResult | null {
+  const tg = groupOfTerritory(s.territory);
+
+  if (s.infectionType === "flu_covid") {
+    return {
+      target: LPU.NOIB,
+      transport: "СМП",
+      callouts: ["Инфекция: грипп/COVID"],
+      sources: ["Схема: «Грипп и COVID → Новгородская областная инфекционная больница»"],
+    };
+  }
+
+  if (s.infectionType === "arvi_pneumo") {
+    if (s.infectionSevere) {
+      const useNokpc = !!s.infectionOver7Days;
+      return {
+        target: useNokpc ? LPU.NOKPC : LPU.NOKB,
+        transport: "СМП (с учётом тяжести), при необходимости согласование",
+        callouts: [
+          "Инфекция: ОРВИ/пневмония",
+          "Тяжёлое состояние",
+          useNokpc ? "Опция по схеме: >7 дней → НОКПЦ" : "Маршрут на НОКБ",
+        ],
+        sources: ["Схема: «Беременные с пневмонией/ОРВИ» (тяжёлые состояния)"],
+      };
+    }
+
+    const target = tg === "borovichi" ? LPU.BOR : tg === "staraya_russa" ? LPU.STAR : LPU.CGKB;
+
+    return {
+      target,
+      transport: "СМП",
+      callouts: ["Инфекция: ОРВИ/пневмония", "Лёгкое/среднее течение → по территории"],
+      sources: ["Схема: «Пневмония и ОРВИ» (по территориям → Боровичи/Старая Русса/ЦГКБ)"],
+    };
+  }
+
+  if (s.trauma) {
     const severe = !!s.traumaSevere;
 
     if (severe) {
@@ -262,39 +438,39 @@ function evalRouting(s: FormState): RoutingResult | null {
     };
   }
 
-  // D) surgery / extragenital (surgical)
-  if (branch === "surgery") {
+  if (s.surgery) {
     const life = !!s.surgeryLifeThreat;
 
     if (life) {
-      if (!s.gestation) {
+      // Для гинекологии (<37) сохраняем выбор профиля.
+      if (isGyneScenario(s)) {
+        const profile: SurgeryProfile = s.surgeryProfile ?? "regional";
         return {
-          target: LPU.NOKB,
+          target: profile === "city" ? LPU.CGKB : LPU.NOKB,
           transport: "СМП (экстренно)",
-          callouts: ["Экстрагенитальная хирургия: угроза жизни", "Срок неизвестен → НОКБ"],
-          sources: ["Схема: экстрагенитальная хирургия (угроза жизни)"],
+          callouts: ["Экстрагенитальная хирургия: угроза жизни", "Гинекология (<37) → выбор профиля (ЦГКБ/НОКБ)"],
+          sources: ["Конспект: <37 недель при угрозе жизни → ЦГКБ или НОКБ (по профилю)"],
         };
       }
 
-      if (s.gestation === "gt22") {
-        return {
-          target: LPU.NOKB,
-          transport: "СМП (экстренно)",
-          callouts: ["Экстрагенитальная хирургия: угроза жизни", ">22 недель → НОКБ"],
-          sources: ["Конспект: >22 недель при угрозе жизни → НОКБ"],
-        };
-      }
-
-      const profile: SurgeryProfile = s.surgeryProfile ?? "regional";
+      // Для акушерства и послеродового — на НОКБ
       return {
-        target: profile === "city" ? LPU.CGKB : LPU.NOKB,
+        target: LPU.NOKB,
         transport: "СМП (экстренно)",
-        callouts: ["Экстрагенитальная хирургия: угроза жизни", "≤22 недель → выбор профиля (ЦГКБ/НОКБ)"],
-        sources: ["Конспект: ≤22 недель при угрозе жизни → ЦГКБ или НОКБ (по профилю)"],
+        callouts: ["Экстрагенитальная хирургия: угроза жизни", "Акушерство / послеродовый период → НОКБ"],
+        sources: ["Конспект: при угрозе жизни → НОКБ"],
       };
     }
 
-    const target = tg === "borovichi" ? LPU.BOR : tg === "staraya_russa" ? LPU.STAR : tg === "valdai" ? LPU.VALDAI : LPU.CGKB;
+    const target =
+      tg === "borovichi"
+        ? LPU.BOR
+        : tg === "staraya_russa"
+        ? LPU.STAR
+        : tg === "valdai"
+        ? LPU.VALDAI
+        : LPU.CGKB;
+
     const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
 
     return {
@@ -306,180 +482,30 @@ function evalRouting(s: FormState): RoutingResult | null {
     };
   }
 
-  // E) extragenital (non-surgical) — MVP fallback
-  if (branch === "extragenital") {
+  if (s.extragenitalInpatient) {
     return {
       target: LPU.NOKB,
       transport: "СМП (по согласованию/профилю)",
       callouts: [
-        "Экстрагенитальная патология требует профильного стационара (не хирургия)",
-        "Маршрут на НОКБ как профильный стационар (нужна детализация по профилям)",
+        "Тяжёлая экстрагенитальная патология / требуется профильный стационар",
+        "Маршрут на НОКБ",
       ],
-      sources: ["Экстрагенитальная (не хирургия) → НОКБ (до детализации профилей)"],
-    };
-  }
-
-  // F) ordinary by scenario
-  if (s.scenario === "delivery") {
-    if (s.pretermLabor && s.gestation === "gt22") {
-      const can = s.canDeliverToNokpc ?? true;
-      if (can) {
-        return {
-          target: LPU.NOKPC,
-          transport: "СМП (экстренно/неотложно)",
-          callouts: ["Подозрение на преждевременные роды при сроке ≥22", "Цель: НОКПЦ"],
-          sources: ["Преждевременные роды ≥22 → НОКПЦ"],
-        };
-      }
-      const target = nearestByTerritory(tg);
-      return {
-        target,
-        alternative: LPU.NOKPC,
-        transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
-        callouts: [
-          "Подозрение на преждевременные роды при сроке ≥22",
-          "Доставка в НОКПЦ невозможна → ближайший стационар",
-          "Параллельно: уведомление/вызов АРКЦ НОКПЦ при необходимости",
-        ],
-        sources: ["MVP: запасной вариант при невозможности доставки в НОКПЦ"],
-      };
-    }
-
-    if (!s.riskDelivery) return null;
-
-    if (s.riskDelivery === "mid" || s.riskDelivery === "high") {
-      return {
-        target: LPU.NOKPC,
-        transport: "СМП",
-        callouts: [`Роды: риск ${labelRisk(s.riskDelivery)} → НОКПЦ`],
-        sources: ["Прил.2: средний/высокий риск → НОКПЦ (MVP по конспекту)"],
-      };
-    }
-
-    const target = tg === "borovichi" ? LPU.BOR : tg === "valdai" ? LPU.VALDAI : tg === "staraya_russa" ? LPU.STAR : LPU.NOKPC;
-    const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
-
-    return {
-      target,
-      alternative,
-      transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
-      callouts: ["Роды: низкий риск → по территории"],
-      sources: ["Конспект: низкий риск (территории → НОКПЦ/Боровичи/Валдайский ММЦ)"],
-    };
-  }
-
-  if (s.scenario === "pregnancy_hosp") {
-    if (s.pretermLabor && s.gestation === "gt22") {
-      const can = s.canDeliverToNokpc ?? true;
-      if (can) {
-        return {
-          target: LPU.NOKPC,
-          transport: "СМП (неотложно)",
-          callouts: ["Угроза/подозрение на преждевременные роды при сроке ≥22", "Цель: НОКПЦ"],
-          sources: ["Преждевременные роды ≥22 → НОКПЦ"],
-        };
-      }
-      const target = nearestByTerritory(tg);
-      return {
-        target,
-        alternative: LPU.NOKPC,
-        transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
-        callouts: [
-          "Угроза/подозрение на преждевременные роды при сроке ≥22",
-          "Доставка в НОКПЦ невозможна → ближайший стационар",
-          "Параллельно: уведомление/вызов АРКЦ НОКПЦ при необходимости",
-        ],
-        sources: ["Запасной вариант при невозможности доставки в НОКПЦ"],
-      };
-    }
-
-    if (!s.riskPregnancy) return null;
-
-    if (s.riskPregnancy === "mid" || s.riskPregnancy === "high") {
-      return {
-        target: LPU.NOKPC,
-        transport: "СМП",
-        callouts: [`Беременность: риск ${labelRisk(s.riskPregnancy)} → НОКПЦ`],
-        sources: ["Прил.1: средний/высокий риск → НОКПЦ"],
-      };
-    }
-
-    const target = tg === "borovichi" ? LPU.BOR : tg === "valdai" ? LPU.VALDAI : LPU.NOKPC;
-    const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
-
-    return {
-      target,
-      alternative,
-      transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
-      callouts: ["Беременность: низкий риск → по территории"],
-      sources: ["Конспект: низкий риск (территории → НОКПЦ/Боровичи/Валдайский ММЦ)"],
-    };
-  }
-
-  if (s.scenario === "postpartum_le42") {
-    if (!s.postpartumIssue) return null;
-
-    const criticalLike: PostpartumIssue[] = ["bleeding", "sepsis_fever", "seizures_hypertensive", "resp_failure", "teo_cardiac"];
-
-    if (criticalLike.includes(s.postpartumIssue)) {
-      return {
-        target: LPU.NOKPC,
-        transport: "СМП (экстренно) + уведомление/вызов АРКЦ НОКПЦ при необходимости",
-        callouts: [`Послеродовый ≤42 дней: ${labelPostpartum(s.postpartumIssue)} → критическая маршрутизация (акушерская)`],
-        sources: ["Прил. 5: неотложные состояния в послеродовом периоде (АРКЦ НОКПЦ)"],
-      };
-    }
-
-    const target = tg === "borovichi" ? LPU.BOR : tg === "valdai" ? LPU.VALDAI : LPU.NOKPC;
-    const alternative = target.id === LPU.VALDAI.id ? LPU.NOKPC : undefined;
-
-    return {
-      target,
-      alternative,
-      transport: target.id === LPU.VALDAI.id ? "СМП (по согласованию)" : "СМП",
-      callouts: ["Послеродовый ≤42 дней: прочее осложнение → по территории"],
-      sources: ["Упрощение: послеродовое прочее → как акушерский стационар по территории"],
-    };
-  }
-
-  if (s.scenario === "transfer") {
-    if (!s.transferFrom || !s.transferCondition) return null;
-
-    if (s.transferFrom === "starorusskaya_crb") {
-      return {
-        target: LPU.NOKPC,
-        transport: s.transferCondition === "stable" ? "СМП" : "Бригада НОКПЦ",
-        callouts: ["Перевод из Старорусской ЦРБ (ургентные роды): по схеме"],
-        sources: ["Схема: «Маршрутизация женщин, родивших в ургентных родильных залах» (Старорусская → НОКПЦ)"],
-      };
-    }
-
-    if (s.transferFrom === "pestovskaya_crb") {
-      if (s.transferCondition === "stable") {
-        return {
-          target: LPU.BOR,
-          transport: "СМП",
-          callouts: ["Перевод из Пестовской ЦРБ: удовлетворительное состояние → Боровичская ЦРБ"],
-          sources: ["Схема: «Пестовская ЦРБ → Боровичская ЦРБ (удовлетворительное)»"],
-        };
-      }
-      return {
-        target: LPU.NOKPC,
-        transport: "Бригада НОКПЦ",
-        callouts: ["Перевод из Пестовской ЦРБ: тяжёлое состояние → НОКПЦ"],
-        sources: ["Схема: «Пестовская ЦРБ → НОКПЦ (тяжёлое)»"],
-      };
-    }
-
-    return {
-      target: LPU.NOKPC,
-      transport: "СМП (по согласованию)",
-      callouts: ["Перевод: прочее МО → НОКПЦ (fallback - запасной вариант)"],
-      sources: ["fallback-правило (требует уточнения по полным схемам)"],
+      sources: ["Экстрагенитальная (не хирургия) → НОКБ"],
     };
   }
 
   return null;
+}
+
+function evalRouting(s: FormState): RoutingResult | null {
+  if (!s.scenario) return null;
+
+  const special = routeSpecialOverrides(s);
+  if (special) return special;
+
+  if (isPostpartumScenario(s)) return routePostpartum(s);
+  if (isGyneScenario(s)) return routeGyneLt37(s);
+  return routeObstetrics(s);
 }
 
 function labelRisk(r: RiskGroup) {
@@ -527,28 +553,35 @@ function labelBranch(b: Branch) {
 function warnings(s: FormState): string[] {
   const w: string[] = [];
 
-  // conflicts by priority
-  if (s.critical && s.infectionType && s.infectionType !== "none") w.push("Выбраны и критика, и инфекция — приоритет критики.");
-  if (s.critical && s.trauma) w.push("Выбраны и критика, и ДТП/травма — приоритет критики.");
-  if (s.critical && s.surgery) w.push("Выбраны и критика, и хирургия — приоритет критики.");
-  if (s.critical && s.extragenitalInpatient) w.push("Выбраны и критика, и экстрагенитальная патология — приоритет критики.");
+  if (s.critical && s.infectionType && s.infectionType !== "none") w.push("Выбраны и критическое состояние, и инфекция — приоритет инфекции.");
+  if (s.critical && s.trauma) w.push("Выбраны и критическое состояние, и ДТП/травма — приоритет ДТП/травмы.");
+  if (s.critical && s.surgery) w.push("Выбраны и критическое состояние, и хирургия — приоритет хирургии.");
+  if (s.critical && s.extragenitalInpatient) w.push("Выбраны и критическое состояние, и тяжёлая экстрагенитальная патология — приоритет маршрута на НОКБ.");
 
   if (s.infectionType && s.infectionType !== "none" && s.trauma) w.push("Выбраны и инфекция, и ДТП/травма — приоритет инфекции.");
   if (s.infectionType && s.infectionType !== "none" && s.surgery) w.push("Выбраны и инфекция, и хирургия — приоритет инфекции.");
   if (s.trauma && s.surgery) w.push("Выбраны и ДТП/травма, и хирургия — приоритет ДТП/травмы.");
 
-  if (!s.territory) w.push("Не выбрана территория прикрепления.");
+  if (!s.territory) w.push("Не выбрана территория прикрепления. Территорию можно выбрать выбрав профиль маршрyта");
 
-  // missing clarifiers
-  if (s.critical && !s.criticalRoute) w.push("Критика отмечена — уточните тип (акушерская/профильная), чтобы выбрать НОКПЦ или НОКБ.");
+  if (
+    s.critical &&
+    !s.criticalRoute &&
+    (isObstetricsScenario(s) || isPostpartumScenario(s))
+  ) {
+    w.push("Критическое состояние отмечено — уточните тип (КАС/профильная), чтобы выбрать НОКПЦ или НОКБ.");
+  }
 
   if (s.infectionType === "arvi_pneumo" && s.infectionSevere === undefined) {
     w.push("ОРВИ/пневмония выбраны — уточните тяжесть (тяжёлое состояние/нет).");
   }
-  if (s.trauma && s.traumaSevere === undefined) w.push("ДТП/травма отмечены — уточните тяжесть (тяжёлое/нет).");
 
-  if (s.pretermLabor) {
-    if (s.canDeliverToNokpc === undefined) w.push("Преждевременные роды отмечены — укажите, возможна ли доставка в НОКПЦ.");
+  if (s.trauma && s.traumaSevere === undefined) {
+    w.push("ДТП/травма отмечены — уточните тяжесть (тяжёлое/нет). Для yточнения тяжести нажмите ДАЛЕЕ.");
+  }
+
+  if (s.pretermLabor && s.canDeliverToNokpc === undefined) {
+    w.push("Преждевременные роды отмечены — укажите, возможна ли доставка в НОКПЦ.");
   }
 
   return w;
@@ -606,12 +639,15 @@ function YesNo(props: { value?: boolean; onChange: (v: boolean) => void; yesLabe
   );
 }
 
-const TERRITORY_OPTIONS: string[] = [
-  ...TERRITORIES_NOVGOROD,
-  ...TERRITORIES_BOROVICHI,
-  ...TERRITORIES_STARAYA_RUSSA,
-  ...TERRITORIES_VALDAI,
-];
+const TERRITORY_OPTIONS: string[] = Array.from(
+  new Set([
+    ...TERRITORIES_NOVGOROD,
+    ...TERRITORIES_BOROVICHI,
+    ...TERRITORIES_STARAYA_RUSSA,
+    ...TERRITORIES_VALDAI,
+    "Мошенской район",
+  ])
+);
 
 export default function RoutingWizard() {
   const [s, setS] = useState<FormState>({
@@ -630,14 +666,16 @@ export default function RoutingWizard() {
     if (step === 0) return !!s.scenario;
 
     if (step === 1) {
-      const needsGest = s.scenario !== "transfer" && s.scenario !== "postpartum_le42";
-      return !!s.territory && (!needsGest || !!s.gestation);
+      return !!s.territory;
     }
 
     if (step === 2) return true;
 
     if (step === 3) {
-      if (branch === "critical") return true;
+      if (branch === "critical") {
+        if (isObstetricsScenario(s) || isPostpartumScenario(s)) return !!s.criticalRoute;
+        return true;
+      }
 
       if (branch === "infection") {
         if (!s.infectionType || s.infectionType === "none") return false;
@@ -649,22 +687,19 @@ export default function RoutingWizard() {
 
       if (branch === "surgery") {
         if (s.surgeryLifeThreat === undefined) return false;
-        if (s.surgeryLifeThreat && s.gestation === "le22") return !!s.surgeryProfile;
+        if (s.surgeryLifeThreat && isGyneScenario(s)) return !!s.surgeryProfile;
         return true;
       }
 
       if (branch === "extragenital") return true;
 
-      if (s.scenario === "delivery") {
+      if (isObstetricsScenario(s)) {
         if (s.pretermLabor) return s.canDeliverToNokpc !== undefined;
         return !!s.riskDelivery;
       }
-      if (s.scenario === "pregnancy_hosp") {
-        if (s.pretermLabor) return s.canDeliverToNokpc !== undefined;
-        return !!s.riskPregnancy;
-      }
-      if (s.scenario === "postpartum_le42") return !!s.postpartumIssue;
-      if (s.scenario === "transfer") return !!s.transferFrom && !!s.transferCondition;
+
+      if (isGyneScenario(s)) return true;
+      if (isPostpartumScenario(s)) return !!s.postpartumIssue;
     }
 
     return true;
@@ -678,7 +713,7 @@ export default function RoutingWizard() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xl font-bold">Маршрутизация СМП — акушерство/гинекология (MVP)</div>
-            <div className="text-sm text-neutral-600">Опросник → конкретная ЛПУ + транспортировка + основание</div>
+            <div className="text-sm text-neutral-600">Профиль → триаж → уточнение → конкретная ЛПУ</div>
           </div>
           <Button
             variant="ghost"
@@ -709,13 +744,12 @@ export default function RoutingWizard() {
         )}
 
         {step === 0 && (
-          <Card title="Экран 1 — Сценарий">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <Card title="Экран 1 — Профиль">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               {[
-                ["pregnancy_hosp", "Беременность → госпитализация (стационар)"],
-                ["delivery", "Роды → родоразрешение (акушерский стационар)"],
+                ["gyne_lt37", "Гинекология (<37 недель)"],
+                ["obstetrics_ge37", "Акушерство (≥37 недель, роды/родоразрешение)"],
                 ["postpartum_le42", "Послеродовый период ≤ 42 дней"],
-                ["transfer", "Перевод/эвакуация из стационара"],
               ].map(([val, label]) => (
                 <Button
                   key={val}
@@ -724,10 +758,14 @@ export default function RoutingWizard() {
                     setS((p) => ({
                       ...p,
                       scenario: val as Scenario,
-                      // небольшой сброс неуместных полей при смене сценария
-                      transferFrom: undefined,
-                      transferCondition: undefined,
-                      postpartumIssue: undefined,
+                      postpartumIssue: val === "postpartum_le42" ? p.postpartumIssue : undefined,
+                      pretermLabor: val === "obstetrics_ge37" ? p.pretermLabor : undefined,
+                      canDeliverToNokpc: val === "obstetrics_ge37" ? p.canDeliverToNokpc : undefined,
+                      riskDelivery: val === "obstetrics_ge37" ? p.riskDelivery : undefined,
+                      criticalRoute:
+                        p.critical && (val === "obstetrics_ge37" || val === "postpartum_le42")
+                          ? p.criticalRoute ?? "kas_arkc"
+                          : undefined,
                     }))
                   }
                 >
@@ -762,33 +800,23 @@ export default function RoutingWizard() {
                 </div>
               </div>
 
-              {s.scenario !== "transfer" && s.scenario !== "postpartum_le42" && (
-                <div>
-                  <div className="text-sm font-medium mb-1">Срок беременности</div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant={s.gestation === "le22" ? "primary" : "ghost"}
-                      onClick={() =>
-                        setS((p) => ({
-                          ...p,
-                          gestation: "le22",
-                          // важно: чтобы не было скрытого обрыва
-                          pretermLabor: undefined,
-                          canDeliverToNokpc: undefined,
-                        }))
-                      }
-                      type="button"
-                    >
-                      ≤ 22 недели
-                    </Button>
-                    <Button variant={s.gestation === "gt22" ? "primary" : "ghost"} onClick={() => setS((p) => ({ ...p, gestation: "gt22" }))} type="button">
-                      &gt; 22 недели
-                    </Button>
-                  </div>
+              {isGyneScenario(s) && (
+                <div className="text-sm text-neutral-600">
+                  Выбран профиль: гинекология. По рабочему правилу это соответствует сроку беременности &lt;37 недель.
                 </div>
               )}
 
-              {s.scenario === "postpartum_le42" && <div className="text-sm text-neutral-600">Послеродовый период фиксируется как ≤ 42 дней.</div>}
+              {isObstetricsScenario(s) && (
+                <div className="text-sm text-neutral-600">
+                  Выбран профиль: акушерство. По рабочему правилу это соответствует сроку беременности ≥37 недель и/или маршрутизации на роды / родоразрешение.
+                </div>
+              )}
+
+              {isPostpartumScenario(s) && (
+                <div className="text-sm text-neutral-600">
+                  Послеродовый период фиксируется как ≤ 42 дней.
+                </div>
+              )}
             </div>
           </Card>
         )}
@@ -798,8 +826,10 @@ export default function RoutingWizard() {
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="font-medium">Критическое состояние / реанимация / угроза жизни?</div>
-                  <div className="text-sm text-neutral-600">Если да — выбираем: акушерская критика (НОКПЦ/АРКЦ) или профильная (НОКБ).</div>
+                  <div className="font-medium">Критическое состояние / Критическое акyшерское состояние (КАС) / угроза жизни?</div>
+                  <div className="text-sm text-neutral-600">
+                    Для акушерства и послеродового периода — акушерская критика (КАС/профильная). Для гинекологии — срочный случай: экстренная госпитализация по территории, либо НОКБ при тяжёлой экстрагенитальной патологии.
+                  </div>
                 </div>
                 <input
                   type="checkbox"
@@ -808,7 +838,11 @@ export default function RoutingWizard() {
                     setS((p) => ({
                       ...p,
                       critical: e.target.checked,
-                      criticalRoute: e.target.checked ? p.criticalRoute ?? "obstetric_arkc" : undefined,
+                      criticalRoute: e.target.checked
+                        ? isObstetricsScenario(p) || isPostpartumScenario(p)
+                          ? p.criticalRoute ?? "kas_arkc"
+                          : undefined
+                        : undefined,
                       criticalKind: e.target.checked ? p.criticalKind : undefined,
                     }))
                   }
@@ -817,21 +851,30 @@ export default function RoutingWizard() {
 
               {s.critical && (
                 <div className="space-y-2">
-                  <div>
-                    <div className="text-sm font-medium mb-1">Тип критики (куда везти)</div>
-                    <Select<CriticalRoute>
-                      value={s.criticalRoute}
-                      onChange={(v) => setS((p) => ({ ...p, criticalRoute: v }))}
-                      options={[
-                        { value: "obstetric_arkc", label: "Акушерская критика → НОКПЦ (АРКЦ)" },
-                        { value: "profile_nokb", label: "Экстрагенитальная/профильная критика → НОКБ" },
-                      ]}
-                      placeholder="Выберите…"
-                    />
-                  </div>
+                  {isObstetricsScenario(s) || isPostpartumScenario(s) ? (
+                    <div>
+                      <div className="text-sm font-medium mb-1">Тип критики (куда везти)</div>
+                      <Select<CriticalRoute>
+                        value={s.criticalRoute}
+                        onChange={(v) => setS((p) => ({ ...p, criticalRoute: v }))}
+                        options={[
+                          { value: "kas_arkc", label: "Критическое акyшерское состояние (КАС) → НОКПЦ (АРКЦ)" },
+                          { value: "profile_nokb", label: "Экстрагенитальная/профильная критика → НОКБ" },
+                        ]}
+                        placeholder="Выберите…"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-sm text-neutral-700">
+                      Для гинекологии отдельный маршрут Критическое акyшерское состояние (КАС) → НОКПЦ не используется.
+                      Итог будет определён как:
+                      <br />— НОКБ, если отмечена тяжёлая экстрагенитальная патология
+                      <br />— иначе экстренная гинекологическая госпитализация по территории
+                    </div>
+                  )}
 
                   <div>
-                    <div className="text-sm font-medium mb-1">Подтип критики (опционально)</div>
+                    <div className="text-sm font-medium mb-1">Подтип критического состояния (опционально)</div>
                     <Select<CriticalKind>
                       value={s.criticalKind}
                       onChange={(v) => setS((p) => ({ ...p, criticalKind: v }))}
@@ -857,7 +900,6 @@ export default function RoutingWizard() {
                     setS((p) => ({
                       ...p,
                       infectionType: v,
-                      // при смене типа инфекции чистим уточнения
                       infectionSevere: v === "arvi_pneumo" ? p.infectionSevere : undefined,
                       infectionOver7Days: undefined,
                     }))
@@ -873,7 +915,7 @@ export default function RoutingWizard() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-medium">ДТП / травма?</div>
-                  <div className="text-sm text-neutral-600">Если да — ветка травма/хирургия (перебивает «низкий риск → по территории»).</div>
+                  <div className="text-sm text-neutral-600">Эта ветка имеет приоритет над профильной акушерско-гинекологической логикой.</div>
                 </div>
                 <input
                   type="checkbox"
@@ -891,17 +933,34 @@ export default function RoutingWizard() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-medium">Экстрагенитальная патология, требующая хирургической помощи?</div>
-                  <div className="text-sm text-neutral-600">Если да — отдельная ветка (после критики/инфекции/травмы).</div>
+                  <div className="text-sm text-neutral-600">Сохраняем как отдельный спец-override.</div>
                 </div>
-                <input type="checkbox" checked={!!s.surgery} onChange={(e) => setS((p) => ({ ...p, surgery: e.target.checked }))} />
+                <input
+                  type="checkbox"
+                  checked={!!s.surgery}
+                  onChange={(e) =>
+                    setS((p) => ({
+                      ...p,
+                      surgery: e.target.checked,
+                      surgeryLifeThreat: e.target.checked ? p.surgeryLifeThreat : undefined,
+                      surgeryProfile: e.target.checked ? p.surgeryProfile : undefined,
+                    }))
+                  }
+                />
               </div>
 
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="font-medium">Экстрагенитальная патология, требующая профильного стационара (не хирургия)?</div>
-                  <div className="text-sm text-neutral-600">Пока как маршрут на НОКБ (позже детализация по профилям).</div>
+                  <div className="font-medium">Тяжёлая экстрагенитальная патология / требуется профильный стационар (не хирургия)?</div>
+                  <div className="text-sm text-neutral-600">
+                    Для гинекологии это соответствует столбцу приказа 792-Д и ведёт в НОКБ. В текущей модели остаётся отдельным спец-override.
+                  </div>
                 </div>
-                <input type="checkbox" checked={!!s.extragenitalInpatient} onChange={(e) => setS((p) => ({ ...p, extragenitalInpatient: e.target.checked }))} />
+                <input
+                  type="checkbox"
+                  checked={!!s.extragenitalInpatient}
+                  onChange={(e) => setS((p) => ({ ...p, extragenitalInpatient: e.target.checked }))}
+                />
               </div>
 
               <div className="text-xs text-neutral-500">
@@ -913,29 +972,51 @@ export default function RoutingWizard() {
 
         {step === 3 && (
           <Card title="Экран 4 — Уточнение по активной ветке">
-            {branch === "critical" && <div className="text-sm text-neutral-700">Доп. вопросов не требуется. Будет выдан маршрут по выбранному типу критики.</div>}
+            {branch === "critical" && (
+              <div className="text-sm text-neutral-700">
+                {isObstetricsScenario(s) || isPostpartumScenario(s)
+                  ? "Доп. вопросов не требуется. Будет выдан маршрут по выбранному типу критики."
+                  : "Для гинекологии отдельный выбор маршрута по КАС не требуется: итог задаётся гинекологической веткой."}
+              </div>
+            )}
 
             {branch === "infection" && (
               <div className="space-y-3">
-                {s.infectionType === "flu_covid" && <div className="text-sm text-neutral-700">Инфекция грипп/COVID → маршрут в инфекционную больницу.</div>}
+                {s.infectionType === "flu_covid" && (
+                  <div className="text-sm text-neutral-700">Инфекция грипп/COVID → маршрут в инфекционную больницу.</div>
+                )}
 
                 {s.infectionType === "arvi_pneumo" && (
                   <>
-                    <div className="text-sm text-neutral-700">Для ОРВИ/пневмонии нужно уточнить тяжесть (иначе “обрыв”).</div>
+                    <div className="text-sm text-neutral-700">Для ОРВИ/пневмонии нужно уточнить тяжесть.</div>
 
                     <div className="flex items-center justify-between gap-3">
                       <div className="font-medium">Тяжёлое состояние / нужна реанимация?</div>
-                      <YesNo value={s.infectionSevere} onChange={(v) => setS((p) => ({ ...p, infectionSevere: v, infectionOver7Days: v ? p.infectionOver7Days : undefined }))} />
+                      <YesNo
+                        value={s.infectionSevere}
+                        onChange={(v) =>
+                          setS((p) => ({
+                            ...p,
+                            infectionSevere: v,
+                            infectionOver7Days: v ? p.infectionOver7Days : undefined,
+                          }))
+                        }
+                      />
                     </div>
 
                     {s.infectionSevere === true && (
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-medium">Болезнь &gt; 7 дней от начала? (опция по схеме)</div>
-                        <YesNo value={s.infectionOver7Days} onChange={(v) => setS((p) => ({ ...p, infectionOver7Days: v }))} />
+                        <YesNo
+                          value={s.infectionOver7Days}
+                          onChange={(v) => setS((p) => ({ ...p, infectionOver7Days: v }))}
+                        />
                       </div>
                     )}
 
-                    {s.infectionSevere === false && <div className="text-sm text-neutral-600">Лёгкое/среднее течение → по территории.</div>}
+                    {s.infectionSevere === false && (
+                      <div className="text-sm text-neutral-600">Лёгкое/среднее течение → по территории.</div>
+                    )}
                   </>
                 )}
               </div>
@@ -943,7 +1024,7 @@ export default function RoutingWizard() {
 
             {branch === "trauma" && (
               <div className="space-y-3">
-                <div className="text-sm text-neutral-700">Для ДТП/травмы нужно уточнить тяжесть (иначе “обрыв”).</div>
+                <div className="text-sm text-neutral-700">Для ДТП/травмы нужно уточнить тяжесть.</div>
                 <div className="flex items-center justify-between gap-3">
                   <div className="font-medium">Тяжёлое состояние / политравма?</div>
                   <YesNo value={s.traumaSevere} onChange={(v) => setS((p) => ({ ...p, traumaSevere: v }))} />
@@ -958,7 +1039,7 @@ export default function RoutingWizard() {
                   <YesNo value={s.surgeryLifeThreat} onChange={(v) => setS((p) => ({ ...p, surgeryLifeThreat: v }))} />
                 </div>
 
-                {s.surgeryLifeThreat === true && s.gestation === "le22" && (
+                {s.surgeryLifeThreat === true && isGyneScenario(s) && (
                   <div>
                     <div className="text-sm font-medium mb-1">Профиль</div>
                     <Select<SurgeryProfile>
@@ -973,20 +1054,35 @@ export default function RoutingWizard() {
                   </div>
                 )}
 
-                {s.surgeryLifeThreat === false && <div className="text-sm text-neutral-700">Без угрозы жизни — по территории: Боровичи/Старая Русса/Валдай (по согласованию)/ЦГКБ.</div>}
+                {s.surgeryLifeThreat === false && (
+                  <div className="text-sm text-neutral-700">
+                    Без угрозы жизни — по территории: Боровичи/Старая Русса/Валдай (по согласованию)/ЦГКБ.
+                  </div>
+                )}
               </div>
             )}
 
-            {branch === "extragenital" && <div className="text-sm text-neutral-700">Экстрагенитальная патология без хирургии: выдаём маршрут на НОКБ. Позже детализируем по профилям.</div>}
+            {branch === "extragenital" && (
+              <div className="text-sm text-neutral-700">Тяжёлая экстрагенитальная патология: маршрут на НОКБ.</div>
+            )}
 
             {branch === "ordinary" && (
               <div className="space-y-4">
-                {(s.scenario === "delivery" || s.scenario === "pregnancy_hosp") && s.gestation === "gt22" && (
+                {isGyneScenario(s) && (
+                  <div className="text-sm text-neutral-700">
+                    Для гинекологии маршрутизация выполняется по приказу 792-Д.
+                    Если нет тяжёлой экстрагенитальной патологии — используется территориальная колонка «Экстренная госпитализация».
+                  </div>
+                )}
+
+                {isObstetricsScenario(s) && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="font-medium">Подозрение на преждевременные роды?</div>
-                        <div className="text-sm text-neutral-600">Схватки/излитие вод при сроке ≥22 → цель НОКПЦ; если доставка невозможна — ближайший стационар + вызов АРКЦ.</div>
+                        <div className="text-sm text-neutral-600">
+                          Если доставка в НОКПЦ возможна — цель НОКПЦ; если невозможна — ближайший стационар + вызов АРКЦ.
+                        </div>
                       </div>
                       <input
                         type="checkbox"
@@ -1010,7 +1106,7 @@ export default function RoutingWizard() {
                   </div>
                 )}
 
-                {s.scenario === "delivery" && !s.pretermLabor && (
+                {isObstetricsScenario(s) && !s.pretermLabor && (
                   <>
                     <div className="text-sm font-medium">Группа риска родов</div>
                     <Select<RiskGroup>
@@ -1025,22 +1121,7 @@ export default function RoutingWizard() {
                   </>
                 )}
 
-                {s.scenario === "pregnancy_hosp" && !s.pretermLabor && (
-                  <>
-                    <div className="text-sm font-medium">Группа риска беременности</div>
-                    <Select<RiskGroup>
-                      value={s.riskPregnancy}
-                      onChange={(v) => setS((p) => ({ ...p, riskPregnancy: v }))}
-                      options={[
-                        { value: "low", label: "Низкий" },
-                        { value: "mid", label: "Средний" },
-                        { value: "high", label: "Высокий" },
-                      ]}
-                    />
-                  </>
-                )}
-
-                {s.scenario === "postpartum_le42" && (
+                {isPostpartumScenario(s) && (
                   <>
                     <div className="text-sm font-medium">Что случилось?</div>
                     <Select<PostpartumIssue>
@@ -1053,31 +1134,6 @@ export default function RoutingWizard() {
                         { value: "resp_failure", label: "Дыхательная недостаточность" },
                         { value: "teo_cardiac", label: "ТЭО/кардиальные осложнения" },
                         { value: "postop_pain_other", label: "Прочее/послеоперационное/боль" },
-                      ]}
-                    />
-                  </>
-                )}
-
-                {s.scenario === "transfer" && (
-                  <>
-                    <div className="text-sm font-medium">Откуда переводим?</div>
-                    <Select<TransferFrom>
-                      value={s.transferFrom}
-                      onChange={(v) => setS((p) => ({ ...p, transferFrom: v }))}
-                      options={[
-                        { value: "starorusskaya_crb", label: "Старорусская ЦРБ" },
-                        { value: "pestovskaya_crb", label: "Пестовская ЦРБ" },
-                        { value: "other", label: "Другое" },
-                      ]}
-                    />
-
-                    <div className="text-sm font-medium">Состояние</div>
-                    <Select<Condition>
-                      value={s.transferCondition}
-                      onChange={(v) => setS((p) => ({ ...p, transferCondition: v }))}
-                      options={[
-                        { value: "stable", label: "Удовлетворительное" },
-                        { value: "severe", label: "Тяжёлое" },
                       ]}
                     />
                   </>
@@ -1096,7 +1152,9 @@ export default function RoutingWizard() {
                 <div className="rounded-2xl border border-neutral-200 p-3">
                   <div className="text-sm text-neutral-500">Куда везти</div>
                   <div className="text-lg font-semibold">{result.target.name}</div>
-                  {result.target.notes && <div className="text-sm text-neutral-600">Примечание: {result.target.notes}</div>}
+                  {result.target.notes && (
+                    <div className="text-sm text-neutral-600">Примечание: {result.target.notes}</div>
+                  )}
                 </div>
 
                 {result.alternative && (
