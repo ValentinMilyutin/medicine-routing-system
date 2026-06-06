@@ -4,6 +4,7 @@ import type { ProfileKey } from "./ProfileSelect";
 
 import OncologySMPRoutingMVP from "./OncologySMPRoutingMVP";
 import RoutingWizard from "./RoutingWizard";
+import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
 
 export default function App() {
   const [profile, setProfile] = useState<ProfileKey | null>(null);
@@ -31,6 +32,15 @@ export default function App() {
       <>
         <BackBar />
         <OncologySMPRoutingMVP />
+      </>
+    );
+  }
+
+  if (profile === "bsk") {
+    return (
+      <>
+        <BackBar />
+        <BSKSMPRoutingWizard />
       </>
     );
   }
