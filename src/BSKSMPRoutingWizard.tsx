@@ -4,6 +4,10 @@ type Branch = "stroke" | "acs" | "other_cvd" | "kink";
 
 type TerritoryGroup = "novgorod" | "borovichi" | "staraya_russa" | "valdai";
 
+type StrokeOnset = "known" | "woke_with_symptoms" | "unknown";
+type ArmMovement = "holds" | "drifts" | "falls";
+type GripStrength = "normal" | "weak" | "absent";
+
 type FacilityId =
   | "nokb"
   | "cgkb1"
@@ -34,10 +38,10 @@ type BSKFormState = {
   fastFace?: boolean;
   fastArm?: boolean;
   fastSpeech?: boolean;
-  onsetKnown?: boolean;
+  strokeOnset?: StrokeOnset;
   onsetWithin5h?: boolean;
-  wakeUpStroke?: boolean;
-  lamsScore?: number;
+  armMovement?: ArmMovement;
+  gripStrength?: GripStrength;
 
   // ОКС
   chestPainOrEquivalent?: boolean;
@@ -247,9 +251,15 @@ function evaluateRouting(state: BSKFormState): RoutingResult | null {
 
   if (state.branch === "stroke") {
     const fastPositive = Boolean(state.fastFace || state.fastArm || state.fastSpeech);
-    const highLams = typeof state.lamsScore === "number" && state.lamsScore >= 4;
+    // Прежний порог маршрутизации сохраняется, но теперь рассчитывается
+    // автоматически по наблюдаемым признакам: лицо (0/1), рука (0/1/2), кисть (0/1/2).
+    const motorDeficitScore =
+      (state.fastFace ? 1 : 0) +
+      (state.armMovement === "drifts" ? 1 : state.armMovement === "falls" ? 2 : 0) +
+      (state.gripStrength === "weak" ? 1 : state.gripStrength === "absent" ? 2 : 0);
+    const severeMotorDeficit = motorDeficitScore >= 4;
     const zonePso = routeStroke(territory.name, territory.group);
-    const target = highLams || state.onsetWithin5h ? FACILITIES.nokb : zonePso;
+    const target = severeMotorDeficit || state.onsetWithin5h ? FACILITIES.nokb : zonePso;
 
     return {
       title: "Маршрутизация СМП при подозрении на ОНМК",
@@ -261,34 +271,34 @@ function evaluateRouting(state: BSKFormState): RoutingResult | null {
       transport: "СМП. При тяжёлом состоянии — реанимационная бригада по показаниям.",
       notify: [
         "Оповестить принимающее ПСО/РСЦ о пациенте с подозрением на ОНМК.",
-        highLams
-          ? "LAMS ≥ 4: высокий риск окклюзии крупной артерии; требуется согласование с РСЦ."
-          : "Передать FAST/LAMS и время начала симптомов.",
+        severeMotorDeficit
+          ? "Выраженный двигательный дефицит: высокий риск поражения крупной артерии; требуется согласование с РСЦ."
+          : "Передать основные неврологические симптомы и время их начала.",
       ],
       checklist: [
-        "FAST: лицо, рука, речь.",
-        "Уточнить время начала симптомов или wake-up stroke.",
-        "Оценить LAMS.",
+        "Оценить асимметрию лица, слабость руки и нарушение речи.",
+        "Уточнить точное время начала симптомов или отметить, что пациент проснулся уже с симптомами.",
+        "Оценить, удерживает ли пациент руку и насколько сохранена сила сжатия кисти.",
         "АД, ЧСС, SpO₂.",
         "Глюкоза крови.",
         "ЭКГ.",
         "Периферический венозный доступ.",
         "Заполнить чек-лист пациента с подозрением на ОНМК.",
         fastPositive
-          ? "FAST положительный: подозрение на ОНМК подтверждено на догоспитальном этапе."
-          : "FAST не отмечен как положительный: проверить другие внезапные неврологические симптомы.",
+          ? "Есть как минимум один основной признак ОНМК."
+          : "Основные признаки не отмечены: проверить другие внезапные неврологические симптомы.",
       ],
       handoff: [
-        "Время начала симптомов / неизвестно / ночной инсульт.",
-        "FAST: лицо/рука/речь.",
-        "LAMS.",
+        "Время начала симптомов / неизвестно / пациент проснулся с симптомами.",
+        "Асимметрия лица, слабость руки, нарушение речи.",
+        "Способность удерживать руку и сила сжатия кисти.",
         "АД, ЧСС, SpO₂, глюкоза.",
         "ЭКГ.",
         "Антикоагулянты, травма головы, операции, кровотечения — если известно.",
         "Время предполагаемого прибытия.",
       ],
       sources: [
-        "Приказ №1368-Д, приложения 20–26: регламент маршрутизации ОНМК, FAST, LAMS, чек-лист СМП.",
+        "Приказ №1368-Д, приложения 20–26: регламент маршрутизации ОНМК и чек-лист СМП.",
       ],
       warnings,
     };
@@ -596,57 +606,125 @@ export default function BSKSMPRoutingWizard() {
             </Section>
 
             {state.branch === "stroke" ? (
-              <Section title="3. ОНМК: FAST / время / LAMS">
+              <Section title="3. ОНМК: признаки и время начала симптомов">
                 <div className="space-y-3">
+                  <div className="text-sm font-semibold text-neutral-800">
+                    Основные признаки
+                  </div>
                   <CheckBox
                     checked={state.fastFace}
                     onChange={(checked) => patch({ fastFace: checked })}
-                    label="FAST: асимметрия лица"
+                    label="Есть асимметрия лица"
                   />
                   <CheckBox
                     checked={state.fastArm}
-                    onChange={(checked) => patch({ fastArm: checked })}
-                    label="FAST: слабость руки"
+                    onChange={(checked) =>
+                      patch({
+                        fastArm: checked,
+                        armMovement: checked ? state.armMovement : undefined,
+                        gripStrength: checked ? state.gripStrength : undefined,
+                      })
+                    }
+                    label="Есть слабость или онемение одной руки"
                   />
                   <CheckBox
                     checked={state.fastSpeech}
                     onChange={(checked) => patch({ fastSpeech: checked })}
-                    label="FAST: нарушение речи"
-                  />
-                  <CheckBox
-                    checked={state.onsetKnown}
-                    onChange={(checked) => patch({ onsetKnown: checked })}
-                    label="Время начала симптомов известно"
-                  />
-                  <CheckBox
-                    checked={state.onsetWithin5h}
-                    onChange={(checked) => patch({ onsetWithin5h: checked })}
-                    label="Укладываемся в терапевтическое окно до 5 часов с учётом доставки"
-                  />
-                  <CheckBox
-                    checked={state.wakeUpStroke}
-                    onChange={(checked) => patch({ wakeUpStroke: checked })}
-                    label="Wake-up stroke / пациент проснулся с симптомами"
+                    label="Есть нарушение речи"
                   />
 
                   <div>
                     <label className="block text-sm font-medium mb-1">
-                      LAMS, баллы
+                      Когда появились симптомы?
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={5}
+                    <select
                       className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2"
-                      value={state.lamsScore ?? ""}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
+                      value={state.strokeOnset ?? ""}
+                      onChange={(event) =>
                         patch({
-                          lamsScore: value === "" ? undefined : Number(value),
-                        });
-                      }}
-                    />
+                          strokeOnset: (event.currentTarget.value || undefined) as
+                            | StrokeOnset
+                            | undefined,
+                          onsetWithin5h:
+                            event.currentTarget.value === "known"
+                              ? state.onsetWithin5h
+                              : undefined,
+                        })
+                      }
+                    >
+                      <option value="">Выберите вариант</option>
+                      <option value="known">Точное время начала известно</option>
+                      <option value="woke_with_symptoms">
+                        Пациент проснулся уже с симптомами
+                      </option>
+                      <option value="unknown">Время начала неизвестно</option>
+                    </select>
                   </div>
+
+                  {state.strokeOnset === "known" ? (
+                    <CheckBox
+                      checked={state.onsetWithin5h}
+                      onChange={(checked) => patch({ onsetWithin5h: checked })}
+                      label="С учётом доставки пациент окажется в стационаре не позднее 5 часов от начала симптомов"
+                    />
+                  ) : null}
+
+                  {state.fastArm ? (
+                    <div className="space-y-3 rounded-2xl bg-neutral-50 p-3">
+                      <div>
+                        <div className="text-sm font-semibold text-neutral-800">
+                          Тяжесть слабости руки
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5">
+                          Выберите наблюдаемые признаки.
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Как пациент удерживает вытянутую руку?
+                        </label>
+                        <select
+                          className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2"
+                          value={state.armMovement ?? ""}
+                          onChange={(event) =>
+                            patch({
+                              armMovement: (event.currentTarget.value || undefined) as
+                                | ArmMovement
+                                | undefined,
+                            })
+                          }
+                        >
+                          <option value="">Выберите вариант</option>
+                          <option value="holds">Удерживает руку</option>
+                          <option value="drifts">Рука постепенно опускается</option>
+                          <option value="falls">Рука быстро падает или не удерживается</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Сила сжатия кисти
+                        </label>
+                        <select
+                          className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2"
+                          value={state.gripStrength ?? ""}
+                          onChange={(event) =>
+                            patch({
+                              gripStrength: (event.currentTarget.value || undefined) as
+                                | GripStrength
+                                | undefined,
+                            })
+                          }
+                        >
+                          <option value="">Выберите вариант</option>
+                          <option value="normal">Сила сохранена</option>
+                          <option value="weak">Сила снижена</option>
+                          <option value="absent">Сжатие кисти отсутствует</option>
+                        </select>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </Section>
             ) : null}

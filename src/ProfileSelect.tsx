@@ -1,4 +1,4 @@
-export type ProfileKey = "obgyn" | "oncology" | "bsk";
+export type ProfileKey = "obgyn" | "oncology" | "bsk" | "dermatology";
 
 export default function ProfileSelect(props: {
   onSelect: (profile: ProfileKey) => void;
@@ -48,6 +48,17 @@ export default function ProfileSelect(props: {
             <div className="text-lg font-semibold">БСК / ССЗ</div>
             <div className="text-sm text-neutral-600 mt-1">
               СМП: ОНМК → ОКС → другие острые ССЗ → КИНК
+            </div>
+          </button>
+
+          <button
+            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
+            onClick={() => onSelect("dermatology")}
+            type="button"
+          >
+            <div className="text-lg font-semibold">Дерматовенерология</div>
+            <div className="text-sm text-neutral-600 mt-1">
+              Территория → состояние → учреждение и адрес
             </div>
           </button>
         </div>

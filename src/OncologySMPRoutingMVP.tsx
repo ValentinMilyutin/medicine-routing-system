@@ -691,7 +691,7 @@ export default function RoutingWizardOncologySMP() {
   const canNext = useMemo(() => {
     if (step === 0) return !!s.territory && !!s.oncologyStatus;
     return true;
-  }, [step, s, s.territory, s.oncologyStatus]);
+  }, [step, s]);
 
   function toggleSign(sign: LeadingSign) {
     setS((prev) => ({
