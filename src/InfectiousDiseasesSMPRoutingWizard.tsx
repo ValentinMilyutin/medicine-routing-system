@@ -2,6 +2,8 @@ import { type ReactNode, useMemo, useState } from "react";
 
 type RouteGroup = "direct" | "pestovo" | "borovichi" | "staraya_russa";
 
+type InfectionGroup = "general" | "flu_orvi_vp" | "covid";
+
 type LifeThreat =
   | "infectious_toxic_shock"
   | "hypovolemic_shock"
@@ -22,10 +24,26 @@ type AdmissionCriterion =
   | "unclear_infectious_diagnosis"
   | "none";
 
+type RespiratoryAdmissionCriterion =
+  | "resp_fever_5_days"
+  | "resp_fever_hypoxemia"
+  | "resp_pneumonia"
+  | "resp_severe_course"
+  | "resp_medical_risk"
+  | "resp_pregnancy"
+  | "resp_isolation_impossible"
+  | "resp_no_monitoring"
+  | "none";
+
+type AnyAdmissionCriterion =
+  | AdmissionCriterion
+  | RespiratoryAdmissionCriterion;
+
 type Facility = {
   name: string;
   role: string;
   address: string;
+  url?: string;
 };
 
 type Territory = {
@@ -40,8 +58,9 @@ type Source = {
 
 type FormState = {
   territory?: string;
+  infectionGroup?: InfectionGroup;
   lifeThreats: LifeThreat[];
-  admissionCriteria: AdmissionCriterion[];
+  admissionCriteria: AnyAdmissionCriterion[];
   transportable?: boolean;
 };
 
@@ -51,6 +70,8 @@ type RoutingResult = {
   targetLabel: string;
   nextTarget?: Facility;
   nextTargetLabel?: string;
+  referenceTargets?: Facility[];
+  referenceTargetsLabel?: string;
   urgency: string;
   transport: string;
   actions: string[];
@@ -69,12 +90,17 @@ const REGIONAL_ORDER: Source = {
     "Приказ Министерства здравоохранения Новгородской области от 18.03.2022 № 302-Д «Об утверждении Порядка оказания медицинской помощи больным инфекционными заболеваниями в медицинских организациях Новгородской области»",
 };
 
+const SEASONAL_RESPIRATORY_ORDER: Source = {
+  label:
+    "Приказ Министерства здравоохранения Новгородской области от 28.08.2025 № 920-Д «Об организации работы медицинских организаций в период предэпидемического и эпидемического подъема заболеваемости гриппом, ОРВИ, внебольничными пневмониями и COVID-19 в эпидемическом сезоне 2025–2026 годов»",
+};
+
 const FACILITIES = {
-  nearestIcu: {
-    name: "Ближайшая доступная медицинская организация с реанимационным отделением",
+  unspecifiedIcu: {
+    name: "Реанимационное отделение медицинской организации",
     role: "Стабилизация жизнеугрожающего состояния с соблюдением санитарно-противоэпидемического режима",
     address:
-      "Организацию и адрес определяет диспетчер после подтверждения готовности принимающего стационара",
+      "Конкретная организация приказом № 302-Д не определена; маршрут должен быть подтверждён диспетчером и принимающим стационаром",
   },
   noib: {
     name: "ГОБУЗ «Новгородская областная инфекционная больница»",
@@ -96,6 +122,19 @@ const FACILITIES = {
     role: "Территориальный инфекционный стационар",
     address: "г. Пестово, ул. Курганная, д. 18",
   },
+  cgkb: {
+    name: "ГОБУЗ «Центральная городская клиническая больница»",
+    role: "Стационар, указанный в сезонной схеме для взрослых с гриппом, ОРВИ и внебольничной пневмонией",
+    address:
+      "Великий Новгород, ул. Зелинского, д. 11; принимающий корпус и въезд подтвердить",
+    url: "https://novgorzdrav.ru/",
+  },
+  valdai: {
+    name: "Валдайский многопрофильный медицинский центр ФГБУ СЗОНКЦ им. Л. Г. Соколова ФМБА России",
+    role: "Стационар, указанный в сезонной схеме для Валдайского района",
+    address: "г. Валдай, ул. Песчаная, д. 1б",
+    url: "https://vmmc.ru/contact/",
+  },
   outpatient: {
     name: "Территориальная медицинская организация по месту вызова",
     role: "Амбулаторная помощь и динамическое наблюдение с разделением потоков пациентов",
@@ -103,6 +142,31 @@ const FACILITIES = {
       "Госпитализация по выбранным критериям не показана; передайте пациента под наблюдение территориальной медицинской организации",
   },
 } satisfies Record<string, Facility>;
+
+const INFECTION_GROUP_LABELS: Record<InfectionGroup, string> = {
+  general: "Другое или пока неуточнённое инфекционное заболевание",
+  flu_orvi_vp: "Грипп, ОРВИ или внебольничная пневмония",
+  covid: "Новая коронавирусная инфекция (COVID-19)",
+};
+
+const BOROVICHI_RESPIRATORY_TERRITORIES = new Set([
+  "Боровичский район",
+  "Мошенской район",
+  "Хвойнинский округ",
+  "Любытинский район",
+  "Окуловский район",
+  "Пестовский район",
+]);
+
+const STARAYA_RUSSA_RESPIRATORY_TERRITORIES = new Set([
+  "Старорусский район",
+  "Волотовский округ",
+  "Парфинский район",
+  "Поддорский район",
+  "Холмский район",
+  "Демянский район",
+  "Марёвский округ",
+]);
 
 const TERRITORIES: Territory[] = [
   { name: "Великий Новгород", routeGroup: "direct" },
@@ -156,6 +220,42 @@ const ADMISSION_LABELS: Record<AdmissionCriterion, string> = {
   none: "Показаний к стационарному лечению не выявлено",
 };
 
+const RESPIRATORY_ADMISSION_LABELS: Record<
+  RespiratoryAdmissionCriterion,
+  string
+> = {
+  resp_fever_5_days:
+    "Температура тела выше 38,5 °C сохраняется в течение 5 дней на амбулаторном лечении",
+  resp_fever_hypoxemia:
+    "Температура выше 38,5 °C и имеется SpO₂ ниже 95 % или частота дыхания более 22 в минуту",
+  resp_pneumonia: "Имеется или подозревается внебольничная пневмония",
+  resp_severe_course:
+    "Тяжёлое течение: выраженная интоксикация, температура выше 39 °C и признаки дыхательной, сердечной, почечной или полиорганной недостаточности",
+  resp_medical_risk:
+    "Любая тяжесть заболевания и высокий медицинский риск: возраст старше 65 лет, значимые хронические заболевания, иммунодефицит, гемодиализ или иммуносупрессивная терапия",
+  resp_pregnancy: "Беременность",
+  resp_isolation_impossible:
+    "Невозможно изолировать пациента по месту жительства или в организованном/закрытом коллективе",
+  resp_no_monitoring:
+    "Невозможно обеспечить постоянное медицинское наблюдение, в том числе в удалённой или труднодоступной местности",
+  none: "Показаний к стационарному лечению не выявлено",
+};
+
+function admissionLabelsFor(
+  infectionGroup: InfectionGroup | undefined,
+): Record<string, string> {
+  return infectionGroup === "general"
+    ? ADMISSION_LABELS
+    : RESPIRATORY_ADMISSION_LABELS;
+}
+
+function admissionLabelFor(
+  item: AnyAdmissionCriterion,
+  infectionGroup: InfectionGroup | undefined,
+): string {
+  return admissionLabelsFor(infectionGroup)[item] ?? item;
+}
+
 function sourcesFor(regionalReference: string): Source[] {
   return [
     {
@@ -175,6 +275,36 @@ function sourcesFor(regionalReference: string): Source[] {
   ];
 }
 
+function seasonalSourcesFor(regionalReference: string): Source[] {
+  const federalSources = sourcesFor("").slice(1);
+  return [
+    {
+      ...SEASONAL_RESPIRATORY_ORDER,
+      label: `${SEASONAL_RESPIRATORY_ORDER.label}; ${regionalReference}`,
+    },
+    ...federalSources,
+  ];
+}
+
+function respiratoryTargetsFor(
+  territoryName: string,
+  infectionGroup: Exclude<InfectionGroup, "general">,
+): Facility[] {
+  if (BOROVICHI_RESPIRATORY_TERRITORIES.has(territoryName)) {
+    return [FACILITIES.borovichi];
+  }
+
+  if (infectionGroup === "covid") return [FACILITIES.noib];
+
+  if (STARAYA_RUSSA_RESPIRATORY_TERRITORIES.has(territoryName)) {
+    return [FACILITIES.starayaRussa];
+  }
+
+  if (territoryName === "Валдайский район") return [FACILITIES.valdai];
+
+  return [FACILITIES.noib, FACILITIES.cgkb];
+}
+
 function targetForRouteGroup(routeGroup: RouteGroup): Facility {
   if (routeGroup === "borovichi") return FACILITIES.borovichi;
   if (routeGroup === "staraya_russa") return FACILITIES.starayaRussa;
@@ -184,24 +314,45 @@ function targetForRouteGroup(routeGroup: RouteGroup): Facility {
 
 function evaluateRouting(state: FormState): RoutingResult | null {
   const territory = TERRITORIES.find((item) => item.name === state.territory);
-  if (!territory || state.lifeThreats.length === 0) return null;
+  if (!territory || !state.infectionGroup || state.lifeThreats.length === 0) {
+    return null;
+  }
 
   const hasLifeThreat = state.lifeThreats.some((item) => item !== "none");
+  const respiratoryTargets =
+    state.infectionGroup === "general"
+      ? undefined
+      : respiratoryTargetsFor(territory.name, state.infectionGroup);
 
   if (hasLifeThreat) {
+    const regionalReference =
+      "приложение № 1, страницы 2–3: помощь при жизнеугрожающих состояниях оказывается в реанимационных отделениях медицинских организаций; после стабилизации предусмотрена эвакуация в ГОБУЗ «НОИБ»";
+    const lifeThreatSources = sourcesFor(regionalReference);
+
     return {
       title: "Жизнеугрожающее инфекционное состояние",
-      target: FACILITIES.nearestIcu,
+      target: FACILITIES.unspecifiedIcu,
       targetLabel: "Первый этап маршрута",
-      nextTarget: FACILITIES.noib,
-      nextTargetLabel: "После стабилизации — медицинская эвакуация",
+      nextTarget:
+        state.infectionGroup === "general" ? FACILITIES.noib : undefined,
+      nextTargetLabel:
+        state.infectionGroup === "general"
+          ? "После стабилизации — медицинская эвакуация"
+          : undefined,
+      referenceTargets: respiratoryTargets,
+      referenceTargetsLabel:
+        respiratoryTargets && respiratoryTargets.length > 0
+          ? "Стационар из сезонной схемы по диагнозу — справочно, не назначение конкретной ОАРИТ"
+          : undefined,
       urgency: "Экстренно",
       transport:
-        "В ближайшую согласованную медицинскую организацию с реанимационным отделением; прямой дальний транспорт до стабилизации не планировать.",
+        "В реанимационное отделение медицинской организации после оперативного подтверждения маршрута. Приказ № 302-Д не закрепляет конкретную ОАРИТ за выбранной территорией.",
       actions: [
-        "Немедленно согласовать ближайшее реанимационное отделение через диспетчера.",
+        "Немедленно запросить у диспетчера конкретную медицинскую организацию с реанимационным отделением и подтвердить готовность приёма.",
         "Поддерживать жизненно важные функции и соблюдать санитарно-противоэпидемический режим.",
-        "После стабилизации согласовать медицинскую эвакуацию в Новгородскую областную инфекционную больницу.",
+        state.infectionGroup === "general"
+          ? "После стабилизации согласовать медицинскую эвакуацию в Новгородскую областную инфекционную больницу."
+          : "После стабилизации повторно согласовать профильный маршрут с учётом сезонной схемы и готовности принимающего стационара.",
       ],
       handoff: [
         `Угрожающие состояния: ${state.lifeThreats
@@ -211,13 +362,91 @@ function evaluateRouting(state: FormState): RoutingResult | null {
         "Показатели дыхания, гемодинамики, сознания и проведённые мероприятия.",
         "Предполагаемый инфекционный диагноз и эпидемиологический анамнез.",
       ],
-      sources: sourcesFor(
-        "приложение № 1, страницы 2–3: помощь при жизнеугрожающих состояниях в реанимационном отделении и эвакуация после стабилизации",
-      ),
+      sources:
+        state.infectionGroup === "general"
+          ? lifeThreatSources
+          : [
+              lifeThreatSources[0],
+              {
+                ...SEASONAL_RESPIRATORY_ORDER,
+                label: `${SEASONAL_RESPIRATORY_ORDER.label}; приложение № 4, страница 12: территориальная схема госпитализации взрослых по указанным диагнозам`,
+              },
+              ...lifeThreatSources.slice(1),
+            ],
+      warning:
+        state.infectionGroup === "general"
+          ? "Нормативный пробел: приказ № 302-Д не содержит таблицы «территория → конкретная ОАРИТ». Не подставляйте предполагаемую больницу без подтверждения диспетчера и принимающей организации."
+          : "Нормативный пробел: приказ № 302-Д не содержит таблицы «территория → конкретная ОАРИТ». Указанные стационары сезонной схемы не следует автоматически считать назначенной ОАРИТ без подтверждения диспетчера и принимающей организации.",
     };
   }
 
   if (state.admissionCriteria.length === 0) return null;
+
+  if (state.admissionCriteria.includes("none")) {
+    return {
+      title: "Стационарная маршрутизация не требуется",
+      target: FACILITIES.outpatient,
+      targetLabel: "Дальнейшее наблюдение",
+      urgency: "По клиническому состоянию",
+      transport:
+        "Перевозка в инфекционный стационар по выбранным критериям не требуется.",
+      actions: [
+        "Организовать передачу информации территориальной медицинской организации.",
+        "Исключить совместное ожидание пациента с общим потоком при обращении в медицинскую организацию.",
+        "При ухудшении состояния повторно оценить показания к госпитализации.",
+      ],
+      handoff: [
+        "Предполагаемый диагноз, дата начала заболевания и эпидемиологический анамнез.",
+        "Основание для амбулаторного наблюдения и признаки, требующие повторного вызова СМП.",
+      ],
+      sources:
+        state.infectionGroup === "general"
+          ? sourcesFor(
+              "приложение № 1, страница 2: лёгкое течение без показаний к стационарному лечению ведётся амбулаторно",
+            )
+          : seasonalSourcesFor(
+              "приложение № 2, страница 9: перечень показаний для госпитализации взрослых",
+            ),
+    };
+  }
+
+  if (state.infectionGroup !== "general") {
+    const targets = respiratoryTargets ?? [];
+    const isCovid = state.infectionGroup === "covid";
+
+    return {
+      title: isCovid
+        ? "Показана госпитализация по сезонной схеме COVID-19"
+        : "Показана госпитализация по сезонной схеме гриппа, ОРВИ или внебольничной пневмонии",
+      target: targets[0],
+      targetLabel: "Куда госпитализировать по приказу № 920-Д",
+      referenceTargets: targets.slice(1),
+      referenceTargetsLabel: "Также указано в территориальной схеме",
+      urgency: "По клиническим показаниям после согласования",
+      transport:
+        targets.length > 1
+          ? "Приказ указывает несколько медицинских организаций; конкретную принимающую организацию и корпус необходимо подтвердить до транспортировки."
+          : "В указанную медицинскую организацию после подтверждения приёма и конкретного принимающего корпуса.",
+      actions: [
+        "Сообщить диспетчеру выбранную территорию, предполагаемый диагноз и показания к госпитализации.",
+        "Подтвердить конкретную принимающую организацию, корпус и въезд до начала транспортировки.",
+        "Соблюдать санитарно-противоэпидемический режим во время транспортировки.",
+      ],
+      handoff: [
+        `Группа инфекции: ${INFECTION_GROUP_LABELS[state.infectionGroup]}.`,
+        `Показания к стационару: ${state.admissionCriteria
+          .filter((item) => item !== "none")
+          .map((item) => admissionLabelFor(item, state.infectionGroup))
+          .join(", ")}.`,
+        "Состояние в динамике, эпидемиологический анамнез и проведённые мероприятия.",
+      ],
+      sources: seasonalSourcesFor(
+        "приложение № 4, страница 12: схема маршрутизации взрослого населения, подлежащего госпитализации",
+      ),
+      warning:
+        "Приказ № 920-Д относится к эпидемическому сезону 2025–2026 годов. Перед применением необходимо убедиться, что он не заменён новой сезонной или оперативной схемой.",
+    };
+  }
 
   const hasSevereCourse = state.admissionCriteria.includes("severe");
   if (hasSevereCourse && state.transportable === undefined) return null;
@@ -249,15 +478,15 @@ function evaluateRouting(state: FormState): RoutingResult | null {
   if (hasSevereCourse && state.transportable === false) {
     return {
       title: "Тяжёлое течение: пациент нетранспортабелен",
-      target: FACILITIES.nearestIcu,
+      target: FACILITIES.unspecifiedIcu,
       targetLabel: "Первый этап маршрута",
       nextTarget: FACILITIES.noib,
       nextTargetLabel: "После стабилизации — при подтверждённой транспортабельности",
       urgency: "Экстренно",
       transport:
-        "В ближайшую согласованную медицинскую организацию, способную провести стабилизацию; последующая эвакуация — отдельным решением.",
+        "В медицинскую организацию, способную провести стабилизацию, после оперативного подтверждения маршрута; последующая эвакуация — отдельным решением.",
       actions: [
-        "Согласовать ближайшую медицинскую организацию через диспетчера.",
+        "Запросить у диспетчера конкретную медицинскую организацию и подтвердить готовность приёма.",
         "Передать принимающей стороне причину нетранспортабельности и требуемый уровень помощи.",
         "После стабилизации повторно оценить транспортабельность и согласовать профильную эвакуацию.",
       ],
@@ -270,30 +499,7 @@ function evaluateRouting(state: FormState): RoutingResult | null {
         "приложение № 1, страницы 2–3: реанимационная помощь по месту первичной госпитализации и эвакуация после стабилизации",
       ),
       warning:
-        "Приказ прямо описывает непосредственную госпитализацию в областную инфекционную больницу только для транспортабельных пациентов. Конкретный маршрут нетранспортабельного пациента определяет диспетчер.",
-    };
-  }
-
-  if (state.admissionCriteria.includes("none")) {
-    return {
-      title: "Стационарная маршрутизация не требуется",
-      target: FACILITIES.outpatient,
-      targetLabel: "Дальнейшее наблюдение",
-      urgency: "По клиническому состоянию",
-      transport:
-        "Перевозка в инфекционный стационар по выбранным критериям не требуется.",
-      actions: [
-        "Организовать передачу информации территориальной медицинской организации.",
-        "Исключить совместное ожидание пациента с общим потоком при обращении в медицинскую организацию.",
-        "При ухудшении состояния повторно оценить показания к госпитализации.",
-      ],
-      handoff: [
-        "Предполагаемый диагноз, дата начала заболевания и эпидемиологический анамнез.",
-        "Основание для амбулаторного наблюдения и признаки, требующие повторного вызова СМП.",
-      ],
-      sources: sourcesFor(
-        "приложение № 1, страница 2: лёгкое течение без показаний к стационарному лечению ведётся амбулаторно",
-      ),
+        "Приказ прямо описывает непосредственную госпитализацию в областную инфекционную больницу только для транспортабельных пациентов и не закрепляет конкретную ОАРИТ первого этапа за территориями.",
     };
   }
 
@@ -326,7 +532,7 @@ function evaluateRouting(state: FormState): RoutingResult | null {
     handoff: [
       `Показания к стационару: ${state.admissionCriteria
         .filter((item) => item !== "none")
-        .map((item) => ADMISSION_LABELS[item])
+        .map((item) => admissionLabelFor(item, state.infectionGroup))
         .join(", ")}.`,
       "Предполагаемый диагноз, дата начала заболевания и эпидемиологический анамнез.",
       "Состояние в динамике и проведённые мероприятия.",
@@ -393,6 +599,16 @@ function FacilityCard(props: { facility: Facility; label: string }) {
       <div className="mt-1 font-bold">{props.facility.name}</div>
       <div className="mt-1 text-sm text-neutral-700">{props.facility.role}</div>
       <div className="mt-2 text-sm font-medium">{props.facility.address}</div>
+      {props.facility.url ? (
+        <a
+          className="mt-2 inline-block text-sm text-blue-700 underline underline-offset-2"
+          href={props.facility.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Официальный сайт медицинской организации
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -470,7 +686,7 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
     });
   };
 
-  const toggleAdmissionCriterion = (item: AdmissionCriterion) => {
+  const toggleAdmissionCriterion = (item: AnyAdmissionCriterion) => {
     setState((current) => {
       if (item === "none") {
         return {
@@ -498,7 +714,10 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
   };
 
   const hasLifeThreat = state.lifeThreats.some((item) => item !== "none");
-  const needsTransportability = state.admissionCriteria.includes("severe");
+  const admissionLabels = admissionLabelsFor(state.infectionGroup);
+  const needsTransportability =
+    state.infectionGroup === "general" &&
+    state.admissionCriteria.includes("severe");
 
   return (
     <div className="min-h-screen bg-neutral-50 p-4">
@@ -512,6 +731,19 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
             медицинской эвакуации.
           </p>
         </header>
+
+        <div className="rounded-3xl border-2 border-violet-300 bg-violet-50 p-5 text-violet-950">
+          <div className="text-sm font-bold uppercase tracking-wide text-violet-800">
+            Вопрос для верификации куратором Минздрава
+          </div>
+          <p className="mt-2 text-sm">
+            Приказ № 302-Д не закрепляет конкретное реанимационное отделение
+            первого этапа за каждой территорией. Чтобы система всегда отвечала
+            на вопрос «куда везти», нужна официальная таблица: территория →
+            основная ОАРИТ → резервная ОАРИТ, с адресами, контактами для
+            согласования и порядком переключения при недоступности стационара.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <div className="space-y-4">
@@ -543,7 +775,38 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
               </select>
             </Section>
 
-            <Section title="2. Жизнеугрожающие состояния">
+            <Section title="2. Группа инфекционного заболевания">
+              <p className="mb-3 text-sm text-neutral-600">
+                Отдельная сезонная схема действует только для перечисленных
+                респираторных инфекций. Для остальных применяется общий
+                инфекционный маршрут.
+              </p>
+              <div className="space-y-2">
+                {(Object.keys(INFECTION_GROUP_LABELS) as InfectionGroup[]).map(
+                  (item) => (
+                    <ChoiceButton
+                      key={item}
+                      selected={state.infectionGroup === item}
+                      onClick={() =>
+                        setState((current) => ({
+                          ...current,
+                          infectionGroup: item,
+                          lifeThreats: [],
+                          admissionCriteria: [],
+                          transportable: undefined,
+                        }))
+                      }
+                    >
+                      <span className="font-medium">
+                        {INFECTION_GROUP_LABELS[item]}
+                      </span>
+                    </ChoiceButton>
+                  ),
+                )}
+              </div>
+            </Section>
+
+            <Section title="3. Жизнеугрожающие состояния">
               <p className="mb-3 text-sm text-neutral-600">
                 Отметьте все выявленные признаки или укажите, что их нет.
               </p>
@@ -562,28 +825,28 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
             </Section>
 
             {state.lifeThreats.includes("none") ? (
-              <Section title="3. Показания к стационарному лечению">
+              <Section title="4. Показания к стационарному лечению">
                 <p className="mb-3 text-sm text-neutral-600">
                   Отметьте все подходящие критерии. При отсутствии показаний
                   выберите последний вариант.
                 </p>
                 <div className="space-y-2">
-                  {(
-                    Object.keys(ADMISSION_LABELS) as AdmissionCriterion[]
-                  ).map((item) => (
+                  {(Object.keys(admissionLabels) as AnyAdmissionCriterion[]).map(
+                    (item) => (
                     <CheckboxChoice
                       key={item}
                       checked={state.admissionCriteria.includes(item)}
                       onChange={() => toggleAdmissionCriterion(item)}
-                      label={ADMISSION_LABELS[item]}
+                      label={admissionLabels[item]}
                     />
-                  ))}
+                    ),
+                  )}
                 </div>
               </Section>
             ) : null}
 
             {!hasLifeThreat && needsTransportability ? (
-              <Section title="4. Транспортабельность">
+              <Section title="5. Транспортабельность">
                 <p className="mb-3 text-sm text-neutral-600">
                   Позволяет ли состояние выполнить прямую транспортировку в
                   областной инфекционный стационар?
@@ -619,8 +882,9 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
           <Section title="Итог маршрутизации">
             {!result ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                Выберите территорию и оцените жизнеугрожающие состояния. Если
-                их нет — укажите показания к стационарному лечению.
+                Выберите территорию и группу инфекционного заболевания, затем
+                оцените жизнеугрожающие состояния. Если их нет — укажите
+                показания к стационарному лечению.
               </div>
             ) : (
               <div className="space-y-4">
@@ -646,6 +910,18 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
                   />
                 ) : null}
 
+                {result.referenceTargets &&
+                result.referenceTargets.length > 0 &&
+                result.referenceTargetsLabel
+                  ? result.referenceTargets.map((facility) => (
+                      <FacilityCard
+                        key={facility.name}
+                        facility={facility}
+                        label={result.referenceTargetsLabel ?? "Справочно"}
+                      />
+                    ))
+                  : null}
+
                 {result.warning ? (
                   <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
                     {result.warning}
@@ -665,12 +941,13 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
 
         <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
           Профиль предназначен только для взрослых. Территориальная схема
-          перенесена из приказа № 302-Д от 18.03.2022. Приказ указывает
-          медицинскую организацию, но не конкретный приёмный корпус и не наличие
-          свободных коек. Перед транспортировкой маршрут и адрес приёмного
-          отделения обязательно подтверждаются диспетчером и принимающей
-          стороной. Если действует отдельный временный или сезонный приказ по
-          конкретной инфекции, применяется подтверждённая оперативная схема.
+          общего инфекционного профиля перенесена из приказа № 302-Д от
+          18.03.2022, а схема для гриппа, ОРВИ, внебольничной пневмонии и
+          COVID-19 — из сезонного приказа № 920-Д от 28.08.2025. Приказы не
+          указывают конкретный принимающий корпус и текущую доступность коек.
+          Перед транспортировкой маршрут, корпус и адрес въезда обязательно
+          подтверждаются диспетчером и принимающей стороной. Сезонный приказ
+          2025–2026 годов необходимо проверить на замену новой схемой.
         </div>
       </div>
     </div>
