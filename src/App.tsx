@@ -6,6 +6,7 @@ import OncologySMPRoutingMVP from "./OncologySMPRoutingMVP";
 import RoutingWizard from "./RoutingWizard";
 import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
 import DermatovenerologySMPRoutingWizard from "./DermatovenerologySMPRoutingWizard";
+import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
 
 function BackBar(props: { onBack: () => void }) {
   return (
@@ -53,6 +54,15 @@ export default function App() {
       <>
         <BackBar onBack={() => setProfile(null)} />
         <DermatovenerologySMPRoutingWizard />
+      </>
+    );
+  }
+
+  if (profile === "infectious") {
+    return (
+      <>
+        <BackBar onBack={() => setProfile(null)} />
+        <InfectiousDiseasesSMPRoutingWizard />
       </>
     );
   }
