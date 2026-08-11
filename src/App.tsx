@@ -7,6 +7,7 @@ import RoutingWizard from "./RoutingWizard";
 import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
 import DermatovenerologySMPRoutingWizard from "./DermatovenerologySMPRoutingWizard";
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
+import RoadAccidentSMPRoutingWizard from "./RoadAccidentSMPRoutingWizard";
 
 function BackBar(props: { onBack: () => void }) {
   return (
@@ -63,6 +64,15 @@ export default function App() {
       <>
         <BackBar onBack={() => setProfile(null)} />
         <InfectiousDiseasesSMPRoutingWizard />
+      </>
+    );
+  }
+
+  if (profile === "road_accident") {
+    return (
+      <>
+        <BackBar onBack={() => setProfile(null)} />
+        <RoadAccidentSMPRoutingWizard />
       </>
     );
   }

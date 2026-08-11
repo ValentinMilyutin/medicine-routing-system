@@ -3,7 +3,8 @@ export type ProfileKey =
   | "oncology"
   | "bsk"
   | "dermatology"
-  | "infectious";
+  | "infectious"
+  | "road_accident";
 
 export default function ProfileSelect(props: {
   onSelect: (profile: ProfileKey) => void;
@@ -75,6 +76,17 @@ export default function ProfileSelect(props: {
             <div className="text-lg font-semibold">Инфекционные болезни</div>
             <div className="text-sm text-neutral-600 mt-1">
               Взрослые: территория → тяжесть → стационар и этап эвакуации
+            </div>
+          </button>
+
+          <button
+            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
+            onClick={() => onSelect("road_accident")}
+            type="button"
+          >
+            <div className="text-lg font-semibold">ДТП / травма</div>
+            <div className="text-sm text-neutral-600 mt-1">
+              Место ДТП → возраст → тяжесть → травмоцентр и этап эвакуации
             </div>
           </button>
         </div>
