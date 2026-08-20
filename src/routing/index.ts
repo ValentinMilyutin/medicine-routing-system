@@ -12,6 +12,7 @@ export {
 } from "./content-schema.js";
 export { routingContentDocuments } from "./content-manifests.js";
 export { routingRuleSetRegistry } from "./rule-set-registry.js";
+export { validateInfectiousRuleSetForEditor } from "./infectious-editor-validation.js";
 export {
   assertRoutingRuleSetV1,
   evaluateRoutingRuleSetV1,

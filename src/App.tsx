@@ -1,7 +1,6 @@
-import { type ComponentType, useState } from "react";
+import { lazy, Suspense, type ComponentType, useState } from "react";
 import ProfileSelect from "./ProfileSelect";
 import type { RoutingProfileId } from "./routing";
-import AdminApp from "./admin/AdminApp";
 
 import OncologySMPRoutingMVP from "./OncologySMPRoutingMVP";
 import RoutingWizard from "./RoutingWizard";
@@ -9,6 +8,8 @@ import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
 import DermatovenerologySMPRoutingWizard from "./DermatovenerologySMPRoutingWizard";
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
 import RoadAccidentSMPRoutingWizard from "./RoadAccidentSMPRoutingWizard";
+
+const AdminApp = lazy(() => import("./admin/AdminApp"));
 
 const PROFILE_COMPONENTS: Record<RoutingProfileId, ComponentType> = {
   obgyn: RoutingWizard,
@@ -40,7 +41,17 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
 
   if (adminOpen) {
-    return <AdminApp onBack={() => setAdminOpen(false)} />;
+    return (
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center bg-neutral-50 p-4 text-sm text-neutral-600">
+            Загрузка административного контура…
+          </div>
+        }
+      >
+        <AdminApp onBack={() => setAdminOpen(false)} />
+      </Suspense>
+    );
   }
 
   if (!profile) {

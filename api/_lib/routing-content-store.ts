@@ -5,6 +5,7 @@ import {
   createRoutingContentDraft,
   routingContentDocuments,
   routingRuleSetRegistry,
+  validateInfectiousRuleSetForEditor,
   type RoutingProfileContentDocument,
   type RoutingProfileId,
   type RoutingRuleSetV1,
@@ -108,6 +109,16 @@ function parseBundle(
     throw new RoutingContentInputError(
       "Документ и набор правил относятся к разным профилям.",
     );
+  }
+  if (document.profileId === "infectious") {
+    const issues = validateInfectiousRuleSetForEditor(ruleSet);
+    if (issues.length > 0) {
+      throw new RoutingContentInputError(
+        `Инфекционный черновик не прошёл контроль сценариев:\n${issues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join("\n")}`,
+      );
+    }
   }
   return { document, ruleSet };
 }

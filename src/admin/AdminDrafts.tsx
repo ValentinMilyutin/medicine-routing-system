@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type { RoutingProfileId } from "../routing";
+import {
+  validateInfectiousRuleSetForEditor,
+  validateRoutingRuleSetV1,
+  type RoutingProfileId,
+  type RoutingRuleSetV1,
+} from "../routing";
 import {
   createAdminRoutingDraft,
   getAdminRoutingVersion,
@@ -8,6 +13,7 @@ import {
   type StoredRoutingVersion,
   type StoredRoutingVersionSummary,
 } from "./admin-content-api";
+import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
 
 function suggestedNextVersion(current: string): string {
   const match = /^(\d+)\.(\d+)\./.exec(current);
@@ -31,6 +37,7 @@ export default function AdminDrafts(props: {
   const [changeSummary, setChangeSummary] = useState("");
   const [working, setWorking] = useState<StoredRoutingVersion | null>(null);
   const [ruleJson, setRuleJson] = useState("");
+  const [editableRuleSet, setEditableRuleSet] = useState<RoutingRuleSetV1 | null>(null);
 
   const profileVersions = useMemo(
     () => versions.filter((version) => version.profileId === props.profileId),
@@ -42,6 +49,7 @@ export default function AdminDrafts(props: {
     setChangeSummary("");
     setWorking(null);
     setRuleJson("");
+    setEditableRuleSet(null);
     setError("");
     setNotice("");
   }, [props.currentVersion, props.profileId]);
@@ -61,6 +69,7 @@ export default function AdminDrafts(props: {
 
   function openEditor(version: StoredRoutingVersion) {
     setWorking(version);
+    setEditableRuleSet(version.ruleSet);
     setRuleJson(JSON.stringify(version.ruleSet, null, 2));
     setNotice("");
     setError("");
@@ -105,7 +114,10 @@ export default function AdminDrafts(props: {
     setError("");
     setNotice("");
     try {
-      const ruleSet: unknown = JSON.parse(ruleJson);
+      const ruleSet: unknown =
+        working.profileId === "infectious" && editableRuleSet
+          ? editableRuleSet
+          : JSON.parse(ruleJson);
       const saved = await saveAdminRoutingDraft({
         ...working,
         ruleSet: ruleSet as StoredRoutingVersion["ruleSet"],
@@ -128,6 +140,16 @@ export default function AdminDrafts(props: {
       setLoading(false);
     }
   }
+
+  const editableRuleIssues = useMemo(
+    () =>
+      editableRuleSet
+        ? editableRuleSet.profileId === "infectious"
+          ? validateInfectiousRuleSetForEditor(editableRuleSet)
+          : validateRoutingRuleSetV1(editableRuleSet)
+        : [],
+    [editableRuleSet],
+  );
 
   if (!opened) {
     return (
@@ -269,7 +291,7 @@ export default function AdminDrafts(props: {
           </details>
 
           <details>
-            <summary className="cursor-pointer text-sm font-semibold">Описание конечных веток ({working.document.branches.length})</summary>
+            <summary className="cursor-pointer text-sm font-semibold">Клинические исходы — обзор ({working.document.branches.length})</summary>
             <div className="mt-3 space-y-3">
               {working.document.branches.map((branch, index) => (
                 <div key={branch.id} className="rounded-xl bg-neutral-50 p-3">
@@ -327,25 +349,51 @@ export default function AdminDrafts(props: {
             </div>
           </details>
 
-          <details>
-            <summary className="cursor-pointer text-sm font-semibold">Исполняемые правила — технический JSON</summary>
-            <p className="mt-2 text-xs text-amber-800">
-              Это временный технический режим. Сервер проверит структуру и запрещённые конструкции; визуальный конструктор условий будет следующим этапом.
-            </p>
-            <textarea
-              aria-label="JSON исполняемых правил"
-              value={ruleJson}
-              onChange={(event) => setRuleJson(event.target.value)}
-              rows={18}
-              spellCheck={false}
-              className="mt-2 w-full rounded-xl border border-neutral-300 bg-neutral-950 px-3 py-2 font-mono text-xs text-neutral-100"
-            />
-          </details>
+          {working.profileId === "infectious" && editableRuleSet ? (
+            <>
+              <InfectiousRuleBuilder
+                ruleSet={editableRuleSet}
+                onChange={(next) => {
+                  setEditableRuleSet(next);
+                  setRuleJson(JSON.stringify(next, null, 2));
+                }}
+              />
+              <details>
+                <summary className="cursor-pointer text-sm font-semibold">Технический JSON — только просмотр</summary>
+                <textarea
+                  aria-label="JSON исполняемых правил"
+                  value={ruleJson}
+                  readOnly
+                  rows={18}
+                  spellCheck={false}
+                  className="mt-2 w-full rounded-xl border border-neutral-300 bg-neutral-950 px-3 py-2 font-mono text-xs text-neutral-100"
+                />
+              </details>
+            </>
+          ) : (
+            <details>
+              <summary className="cursor-pointer text-sm font-semibold">Исполняемые правила — технический JSON</summary>
+              <p className="mt-2 text-xs text-amber-800">
+                Для этого профиля визуальный конструктор ещё не подключён. Сервер проверит структуру и запрещённые конструкции.
+              </p>
+              <textarea
+                aria-label="JSON исполняемых правил"
+                value={ruleJson}
+                onChange={(event) => setRuleJson(event.target.value)}
+                rows={18}
+                spellCheck={false}
+                className="mt-2 w-full rounded-xl border border-neutral-300 bg-neutral-950 px-3 py-2 font-mono text-xs text-neutral-100"
+              />
+            </details>
+          )}
 
           <button
             type="button"
             onClick={saveDraft}
-            disabled={loading}
+            disabled={
+              loading ||
+              (working.profileId === "infectious" && editableRuleIssues.length > 0)
+            }
             className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             {loading ? "Сохранение…" : "Сохранить новую ревизию"}

@@ -70,6 +70,24 @@ describe("серверное хранилище административных
     ).toThrow(/разным профилям/);
   });
 
+  it("отклоняет инфекционный черновик с незакрытым обязательным сценарием", () => {
+    const document = routingContentDocuments.find(
+      (item) => item.profileId === "infectious",
+    );
+    if (!document || document.execution.kind !== "rules_v1") {
+      throw new Error("Не найден инфекционный rules_v1 профиль.");
+    }
+    const ruleSet = structuredClone(routingRuleSetRegistry["infectious.v1"]);
+    const incompleteRuleSet = {
+      ...ruleSet,
+      rules: ruleSet.rules.filter((rule) => rule.id !== "territorial_staged"),
+    };
+
+    expect(() =>
+      routingContentStoreTestUtils.parseBundle(document, incompleteRuleSet),
+    ).toThrow(/не прошёл контроль сценариев/);
+  });
+
   it("преобразует служебную строку базы в безопасную сводку", () => {
     const summary = routingContentStoreTestUtils.summaryFromRow({
       id: "17",
