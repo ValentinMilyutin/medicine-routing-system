@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# Маршрутизация СМП
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Веб-приложение для выбора маршрута медицинской эвакуации бригадой СМП в Новгородской области. Текущая версия содержит шесть профилей: акушерство и гинекология, БСК/ССЗ, онкология, дерматовенерология, инфекционные болезни взрослых и ДТП/травма.
 
-Currently, two official plugins are available:
+Проект находится в стадии MVP. Неподтверждённые медицинские и организационные решения вынесены в отдельный реестр и не должны считаться согласованными только потому, что они реализованы в коде.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Локальный запуск
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Проверки
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run lint
+npm run test
+npm run build
+npm run test:e2e
+npm run test:all
+npm run db:check
 ```
+
+`test:all` последовательно запускает статический анализ, модульные/архитектурные/UI-проверки, production-сборку и браузерные сценарии для desktop и mobile.
+
+## Доступ администратора
+
+Основные опросники доступны без входа. Закрытый раздел использует единственную учётную запись `admin` с полными правами; другие роли и регистрация сейчас не предусмотрены.
+
+Для серверной авторизации скопируйте названия переменных из `.env.example` и задайте собственные значения `ADMIN_PASSWORD` и `ADMIN_SESSION_SECRET`. Реальные значения нельзя добавлять в Git и нельзя называть с префиксом `VITE_`.
+
+Административные черновики и история ревизий хранятся в Neon Postgres. Схема применяется командой `npm run db:migrate`; проверка подключения только на чтение — `npm run db:check`.
+
+## Архитектура
+
+- `src/routing` — медицинские правила, справочники и единый реестр профилей без зависимости от React.
+- `src/admin` и `api/admin` — закрытый интерфейс и серверная сессия единственного администратора.
+- `src/*.tsx` — пользовательские опросники и отображение рассчитанного маршрута.
+- `tests/unit` — регрессионная спецификация правил и проверка реестра.
+- `tests/ui` — поведение интерфейса.
+- `tests/e2e` — сквозные сценарии в Chrome.
+- `docs/testing` — инвентаризация и вопросы к кураторам.
+- `docs/architecture` — границы доменного слоя.
+
+Ключевые документы: `docs/testing/current-routing-inventory.md`, `docs/testing/minzdrav-review-questions.md`, `docs/architecture/routing-domain.md`, `docs/architecture/versioned-routing-content.md`, `docs/architecture/rules-v1.md`, `docs/architecture/admin-access.md` и `docs/architecture/admin-storage.md`.

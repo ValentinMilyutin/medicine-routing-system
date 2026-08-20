@@ -20,4 +20,32 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/routing/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react',
+              message: 'Домен маршрутизации не должен зависеть от React.',
+            },
+          ],
+          patterns: [
+            {
+              group: ['../*'],
+              message: 'Домен маршрутизации не должен импортировать UI-компоненты.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['api/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 ])

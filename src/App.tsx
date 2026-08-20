@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { type ComponentType, useState } from "react";
 import ProfileSelect from "./ProfileSelect";
-import type { ProfileKey } from "./ProfileSelect";
+import type { RoutingProfileId } from "./routing";
+import AdminApp from "./admin/AdminApp";
 
 import OncologySMPRoutingMVP from "./OncologySMPRoutingMVP";
 import RoutingWizard from "./RoutingWizard";
@@ -8,6 +9,15 @@ import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
 import DermatovenerologySMPRoutingWizard from "./DermatovenerologySMPRoutingWizard";
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
 import RoadAccidentSMPRoutingWizard from "./RoadAccidentSMPRoutingWizard";
+
+const PROFILE_COMPONENTS: Record<RoutingProfileId, ComponentType> = {
+  obgyn: RoutingWizard,
+  oncology: OncologySMPRoutingMVP,
+  bsk: BSKSMPRoutingWizard,
+  dermatology: DermatovenerologySMPRoutingWizard,
+  infectious: InfectiousDiseasesSMPRoutingWizard,
+  road_accident: RoadAccidentSMPRoutingWizard,
+};
 
 function BackBar(props: { onBack: () => void }) {
   return (
@@ -26,61 +36,28 @@ function BackBar(props: { onBack: () => void }) {
 }
 
 export default function App() {
-  const [profile, setProfile] = useState<ProfileKey | null>(null);
+  const [profile, setProfile] = useState<RoutingProfileId | null>(null);
+  const [adminOpen, setAdminOpen] = useState(false);
+
+  if (adminOpen) {
+    return <AdminApp onBack={() => setAdminOpen(false)} />;
+  }
 
   if (!profile) {
-    return <ProfileSelect onSelect={setProfile} />;
-  }
-
-  if (profile === "oncology") {
     return (
-      <>
-        <BackBar onBack={() => setProfile(null)} />
-        <OncologySMPRoutingMVP />
-      </>
+      <ProfileSelect
+        onSelect={setProfile}
+        onAdmin={() => setAdminOpen(true)}
+      />
     );
   }
 
-  if (profile === "bsk") {
-    return (
-      <>
-        <BackBar onBack={() => setProfile(null)} />
-        <BSKSMPRoutingWizard />
-      </>
-    );
-  }
-
-  if (profile === "dermatology") {
-    return (
-      <>
-        <BackBar onBack={() => setProfile(null)} />
-        <DermatovenerologySMPRoutingWizard />
-      </>
-    );
-  }
-
-  if (profile === "infectious") {
-    return (
-      <>
-        <BackBar onBack={() => setProfile(null)} />
-        <InfectiousDiseasesSMPRoutingWizard />
-      </>
-    );
-  }
-
-  if (profile === "road_accident") {
-    return (
-      <>
-        <BackBar onBack={() => setProfile(null)} />
-        <RoadAccidentSMPRoutingWizard />
-      </>
-    );
-  }
+  const ProfileComponent = PROFILE_COMPONENTS[profile];
 
   return (
     <>
       <BackBar onBack={() => setProfile(null)} />
-      <RoutingWizard />
+      <ProfileComponent />
     </>
   );
 }

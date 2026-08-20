@@ -1,16 +1,9 @@
-export type ProfileKey =
-  | "obgyn"
-  | "oncology"
-  | "bsk"
-  | "dermatology"
-  | "infectious"
-  | "road_accident";
+import { routingProfileList, type RoutingProfileId } from "./routing";
 
 export default function ProfileSelect(props: {
-  onSelect: (profile: ProfileKey) => void;
+  onSelect: (profile: RoutingProfileId) => void;
+  onAdmin: () => void;
 }) {
-  const { onSelect } = props;
-
   return (
     <div className="min-h-screen bg-neutral-50 p-4">
       <div className="max-w-3xl mx-auto space-y-4">
@@ -21,80 +14,39 @@ export default function ProfileSelect(props: {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("obgyn")}
-            type="button"
-          >
-            <div className="text-lg font-semibold">
-              Акушерство / гинекология
-            </div>
-            <div className="text-sm text-neutral-600 mt-1">
-              Опросник → сценарий → маршрутизация → обоснование
-            </div>
-          </button>
+        <section
+          aria-label="Профили маршрутизации"
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
+          {routingProfileList.map((profile) => (
+            <button
+              key={profile.id}
+              className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
+              onClick={() => props.onSelect(profile.id)}
+              type="button"
+            >
+              <div className="text-lg font-semibold">{profile.title}</div>
+              <div className="text-sm text-neutral-600 mt-1">
+                {profile.description}
+              </div>
+            </button>
+          ))}
+        </section>
 
-          <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("oncology")}
-            type="button"
-          >
-            <div className="text-lg font-semibold">Онкология</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              Территория → СМП → синдромы → итоговый маршрут
+        <div className="flex flex-col gap-3 rounded-3xl border border-neutral-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-medium">Управление маршрутизацией</div>
+            <div className="mt-1 text-xs text-neutral-500">
+              Закрытый раздел для единственной учётной записи администратора.
             </div>
-          </button>
-
+          </div>
           <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("bsk")}
             type="button"
+            onClick={props.onAdmin}
+            className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-medium hover:bg-neutral-50"
           >
-            <div className="text-lg font-semibold">БСК / ССЗ</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              СМП: ОНМК → ОКС → другие острые ССЗ → КИНК
-            </div>
+            Администрирование
           </button>
-
-          <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("dermatology")}
-            type="button"
-          >
-            <div className="text-lg font-semibold">Дерматовенерология</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              Территория → состояние → учреждение и адрес
-            </div>
-          </button>
-
-          <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("infectious")}
-            type="button"
-          >
-            <div className="text-lg font-semibold">Инфекционные болезни</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              Взрослые: территория → тяжесть → стационар и этап эвакуации
-            </div>
-          </button>
-
-          <button
-            className="rounded-3xl border border-neutral-200 bg-white p-6 text-left shadow-sm hover:bg-neutral-50 transition"
-            onClick={() => onSelect("road_accident")}
-            type="button"
-          >
-            <div className="text-lg font-semibold">ДТП / травма</div>
-            <div className="text-sm text-neutral-600 mt-1">
-              Место ДТП → возраст → тяжесть → травмоцентр и этап эвакуации
-            </div>
-          </button>
-        </div>
-
-        <div className="text-xs text-neutral-500">
-          Примечание: сейчас это навигация внутри приложения. Позже можно
-          заменить на нормальные URL через react-router. Кроме этого — это
-          тестовая версия.
         </div>
       </div>
     </div>

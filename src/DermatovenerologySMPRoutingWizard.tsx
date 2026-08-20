@@ -1,252 +1,13 @@
 import { type ReactNode, useMemo, useState } from "react";
-
-type Condition =
-  | "angioedema"
-  | "toxicoderma"
-  | "lyell"
-  | "stevens_johnson"
-  | "none";
-
-type Facility = {
-  name: string;
-  role: string;
-  address: string;
-};
-
-type Territory = {
-  name: string;
-  outpatientTarget: Facility;
-};
-
-type FormState = {
-  territory?: string;
-  condition?: Condition;
-  inpatientCare?: boolean;
-};
-
-type Source = {
-  label: string;
-  url?: string;
-};
-
-type RoutingResult = {
-  title: string;
-  target: Facility;
-  urgency: string;
-  transport: string;
-  actions: string[];
-  handoff: string[];
-  sources: Source[];
-  afterStabilization?: Facility;
-};
-
-const FEDERAL_ORDER_URL =
-  "https://publication.pravo.gov.ru/document/0001202510280015";
-const PREVIOUS_FEDERAL_ORDER_URL =
-  "https://minzdrav.gov.ru/documents/9101-poryadok-okazaniya-meditsinskoy-pomoschi-po-profilyu-dermatovenerologiya-utv-prikazom-ministerstva-zdravoohraneniya-rossiyskoy-federatsii-ot-15-noyabrya-2012-g-924n";
-const EMERGENCY_CARE_ORDER_URL =
-  "https://minzdrav.gov.ru/ministry/61/3/stranitsa-992/prikaz-minzdrava-rossii-ot-20-06-2013-n-388n-red-ot-21-02-2020-ob-utverzhdenii-poryadka-okazaniya-skoroy-v-tom-chisle-skoroy-spetsializirovannoy-meditsinskoy-pomoschi";
-
-const REGIONAL_ORDER: Source = {
-  label:
-    "Приказ Министерства здравоохранения Новгородской области от 01.02.2022 № 98-Д, приложение к приказу",
-};
-
-const FACILITIES = {
-  nearestIcu: {
-    name: "Ближайшая медицинская организация с ОАРИТ или палатой интенсивной терапии",
-    role: "Региональный приказ не называет конкретную организацию: точку назначения нужно сверить по действующему оперативному маршруту СМП",
-    address: "Адрес определяется после согласования доступного стационара",
-  },
-  nokvdOutpatient: {
-    name: "ОАУЗ «Новгородский областной кожно-венерологический диспансер»",
-    role: "Амбулаторный приём врача-дерматовенеролога",
-    address: "Великий Новгород, ул. Дворцовая, д. 10/6",
-  },
-  nokvdInpatient: {
-    name: "ОАУЗ «Новгородский областной кожно-венерологический диспансер»",
-    role: "Профильный дерматовенерологический стационар",
-    address: "Великий Новгород, ул. Большая Московская, д. 67, стр. 4",
-  },
-  borovichi: {
-    name: "ГОБУЗ «Боровичская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Боровичи, пл. 1 Мая, д. 2А",
-  },
-  starayaRussa: {
-    name: "ГОБУЗ «Старорусская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Старая Русса, ул. Гостинодворская, д. 50",
-  },
-  valdai: {
-    name: "Валдайский многопрофильный медицинский центр ФМБА России",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Валдай, ул. Песчаная, д. 1А",
-  },
-  pestovo: {
-    name: "ГОБУЗ «Пестовская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Пестово, ул. Курганная, д. 18",
-  },
-  kresttsy: {
-    name: "ГОБУЗ «Крестецкая центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "р. п. Крестцы, ул. Гагарина, д. 2",
-  },
-  malayaVishera: {
-    name: "ГОБУЗ «Маловишерская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Малая Вишера, 2-й Набережный пер., д. 20",
-  },
-  okulovka: {
-    name: "ГОБУЗ «Окуловская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Окуловка, ул. Калинина, д. 129",
-  },
-  chudovo: {
-    name: "ГОБУЗ «Чудовская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "г. Чудово, ул. Косинова, д. 6",
-  },
-  shimsk: {
-    name: "ГОБУЗ «Шимская центральная районная больница»",
-    role: "Кабинет врача-дерматовенеролога",
-    address: "р. п. Шимск, ул. Новгородская, д. 7",
-  },
-} satisfies Record<string, Facility>;
-
-const TERRITORIES: Territory[] = [
-  { name: "Великий Новгород", outpatientTarget: FACILITIES.nokvdOutpatient },
-  { name: "Батецкий район", outpatientTarget: FACILITIES.nokvdOutpatient },
-  { name: "Боровичский район", outpatientTarget: FACILITIES.borovichi },
-  { name: "Валдайский район", outpatientTarget: FACILITIES.valdai },
-  { name: "Волотовский округ", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Демянский район", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Крестецкий район", outpatientTarget: FACILITIES.kresttsy },
-  { name: "Любытинский район", outpatientTarget: FACILITIES.borovichi },
-  { name: "Маловишерский район", outpatientTarget: FACILITIES.malayaVishera },
-  { name: "Марёвский округ", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Мошенской район", outpatientTarget: FACILITIES.borovichi },
-  { name: "Новгородский район", outpatientTarget: FACILITIES.nokvdOutpatient },
-  { name: "Окуловский район", outpatientTarget: FACILITIES.okulovka },
-  { name: "Парфинский район", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Пестовский район", outpatientTarget: FACILITIES.pestovo },
-  { name: "Поддорский район", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Солецкий округ", outpatientTarget: FACILITIES.shimsk },
-  { name: "Старорусский район", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Хвойнинский округ", outpatientTarget: FACILITIES.borovichi },
-  { name: "Холмский район", outpatientTarget: FACILITIES.starayaRussa },
-  { name: "Чудовский район", outpatientTarget: FACILITIES.chudovo },
-  { name: "Шимский район", outpatientTarget: FACILITIES.shimsk },
-];
-
-const CONDITION_LABELS: Record<Condition, string> = {
-  angioedema: "Отёк Квинке",
-  toxicoderma: "Токсикодермия",
-  lyell: "Синдром Лайелла",
-  stevens_johnson: "Синдром Стивенса — Джонсона",
-  none: "Ни одного из перечисленных состояний нет",
-};
-
-function sourcesFor(pageReference: string): Source[] {
-  return [
-    { ...REGIONAL_ORDER, label: `${REGIONAL_ORDER.label}, ${pageReference}` },
-    {
-      label:
-        "Действующий федеральный порядок: приказ Минздрава России от 24.09.2025 № 582н",
-      url: FEDERAL_ORDER_URL,
-    },
-    {
-      label:
-        "Приказ Минздрава России от 15.11.2012 № 924н, на основании которого издан региональный приказ № 98-Д",
-      url: PREVIOUS_FEDERAL_ORDER_URL,
-    },
-  ];
-}
-
-function evaluateRouting(state: FormState): RoutingResult | null {
-  const territory = TERRITORIES.find((item) => item.name === state.territory);
-  if (!territory || !state.condition) return null;
-
-  if (state.condition !== "none") {
-    const condition = CONDITION_LABELS[state.condition];
-    return {
-      title: `${condition}: экстренная госпитализация`,
-      target: FACILITIES.nearestIcu,
-      afterStabilization: FACILITIES.nokvdInpatient,
-      urgency: "Экстренно",
-      transport:
-        "Бригадой СМП после оперативного согласования принимающей медицинской организации.",
-      actions: [
-        "Согласовать ближайшую доступную медицинскую организацию с ОАРИТ или палатой интенсивной терапии.",
-        "Предупредить принимающую медицинскую организацию и сообщить расчётное время прибытия.",
-        "Оказывать помощь и наблюдать пациента в соответствии с действующими протоколами СМП.",
-      ],
-      handoff: [
-        "Предполагаемый диагноз и время начала симптомов.",
-        "Состояние дыхательных путей, показатели дыхания и гемодинамики.",
-        "Поражение кожи и слизистых, известные аллергены и недавно принятые лекарства.",
-        "Проведённые мероприятия и динамика состояния.",
-      ],
-      sources: [
-        ...sourcesFor(
-          "пункт 8, страница 4: перечислены четыре состояния и маршрут в территориально ближайшую МО с ОАРИТ/ПИТ",
-        ),
-        {
-          label:
-            "Порядок оказания скорой медицинской помощи и медицинской эвакуации: приказ Минздрава России от 20.06.2013 № 388н",
-          url: EMERGENCY_CARE_ORDER_URL,
-        },
-      ],
-    };
-  }
-
-  if (state.inpatientCare === undefined) return null;
-
-  if (state.inpatientCare) {
-    return {
-      title: "Показана специализированная стационарная помощь",
-      target: FACILITIES.nokvdInpatient,
-      urgency: "По клиническим показаниям",
-      transport:
-        "Способ транспортировки определяется состоянием пациента; госпитализацию предварительно согласовать.",
-      actions: [
-        "Исключить жизнеугрожающее состояние перед профильной транспортировкой.",
-        "Согласовать госпитализацию с принимающим профильным стационаром.",
-        "Уточнить лекарства, аллергологический и эпидемиологический анамнез.",
-      ],
-      handoff: [
-        "Причина невозможности амбулаторного лечения.",
-        "Начало и динамика заболевания.",
-        "Сопутствующие заболевания, лекарства и аллергии.",
-      ],
-      sources: sourcesFor(
-        "пункт 10 и приложение, страницы 5–8: профильный стационар для всех территорий — ОАУЗ «НОКВД»",
-      ),
-    };
-  }
-
-  return {
-    title: "Амбулаторный маршрут по территории",
-    target: territory.outpatientTarget,
-    urgency: "Планово или неотложно — по клиническому состоянию",
-    transport:
-      "Экстренная транспортировка СМП по этой ветке приказом не предусмотрена; организовать направление или рекомендовать обращение.",
-    actions: [
-      "Убедиться в отсутствии перечисленных жизнеугрожающих состояний.",
-      "Зафиксировать жалобы, локализацию и распространённость поражения.",
-      "Уточнить режим приёма территориального кабинета и сообщить пациенту срок обращения.",
-    ],
-    handoff: [
-      "Начало и динамика заболевания.",
-      "Локализация поражения кожи и слизистых.",
-      "Лекарства, аллергии и эпидемиологический анамнез.",
-    ],
-    sources: sourcesFor(
-      "приложение, страницы 6–8: зональное распределение первичной специализированной помощи",
-    ),
-  };
-}
+import {
+  type Condition,
+  type Facility,
+  type FormState,
+  type Source,
+  TERRITORIES,
+  CONDITION_LABELS,
+  evaluateRouting,
+} from "./routing/dermatology";
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
@@ -366,12 +127,13 @@ export default function DermatovenerologySMPRoutingWizard() {
                 id="derm-territory"
                 className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2"
                 value={state.territory ?? ""}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const territory = event.currentTarget.value || undefined;
                   setState((current) => ({
                     ...current,
-                    territory: event.currentTarget.value || undefined,
-                  }))
-                }
+                    territory,
+                  }));
+                }}
               >
                 <option value="">Выберите территорию</option>
                 {TERRITORIES.map((territory) => (
