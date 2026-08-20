@@ -1,4 +1,9 @@
 import type { RoutingProfileId } from "./types.js";
+import type {
+  RoutingConditionV1,
+  RoutingJsonPrimitive,
+} from "./rules-v1.js";
+import { validateRoutingConditionV1 } from "./rules-v1.js";
 
 export const ROUTING_CONTENT_SCHEMA_VERSION = 1 as const;
 
@@ -25,12 +30,24 @@ export type RoutingQuestionRequirement =
   | "conditional"
   | "optional";
 
+export type RoutingQuestionOption = {
+  value: RoutingJsonPrimitive;
+  label: string;
+  helpText?: string;
+  exclusive?: boolean;
+  visibility?: RoutingConditionV1;
+};
+
 export type RoutingQuestionDescriptor = {
   id: string;
   label: string;
   kind: RoutingQuestionKind;
   requirement: RoutingQuestionRequirement;
   optionCatalog?: string;
+  helpText?: string;
+  placeholder?: string;
+  visibility?: RoutingConditionV1;
+  options?: readonly RoutingQuestionOption[];
 };
 
 export type RoutingSourceDescriptor = {
@@ -107,7 +124,22 @@ const CONTENT_STATUSES = new Set<RoutingContentStatus>([
   "archived",
 ]);
 
+const QUESTION_KINDS = new Set<RoutingQuestionKind>([
+  "boolean",
+  "single_choice",
+  "multiple_choice",
+  "number",
+  "text",
+]);
+
+const QUESTION_REQUIREMENTS = new Set<RoutingQuestionRequirement>([
+  "always",
+  "conditional",
+  "optional",
+]);
+
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const QUESTION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,6 +163,92 @@ function duplicateValues(values: readonly string[]): string[] {
     seen.add(value);
   });
   return [...duplicates];
+}
+
+function conditionFields(
+  condition: RoutingConditionV1,
+  fields: string[] = [],
+): string[] {
+  if (condition.op === "all" || condition.op === "any") {
+    condition.conditions.forEach((child) => conditionFields(child, fields));
+  } else if (condition.op === "not") {
+    conditionFields(condition.condition, fields);
+  } else {
+    fields.push(condition.field);
+  }
+  return fields;
+}
+
+function validateQuestionCondition(
+  value: unknown,
+  path: string,
+  availableQuestions: ReadonlyMap<string, RoutingQuestionDescriptor>,
+  issues: RoutingContentValidationIssue[],
+) {
+  const conditionIssues = validateRoutingConditionV1(value, path);
+  issues.push(...conditionIssues);
+  if (conditionIssues.length > 0) return;
+
+  conditionFields(value as RoutingConditionV1).forEach((field) => {
+    if (!availableQuestions.has(field)) {
+      issues.push({
+        path,
+        message: `Условие ссылается на недоступный или следующий вопрос ${field}.`,
+      });
+    }
+  });
+  const inspectOperators = (condition: RoutingConditionV1) => {
+    if (condition.op === "all" || condition.op === "any") {
+      condition.conditions.forEach(inspectOperators);
+      return;
+    }
+    if (condition.op === "not") {
+      inspectOperators(condition.condition);
+      return;
+    }
+    const question = availableQuestions.get(condition.field);
+    if (!question) return;
+    const multiple = question.kind === "multiple_choice";
+    if (
+      multiple &&
+      condition.op !== "includes" &&
+      condition.op !== "non_empty"
+    ) {
+      issues.push({
+        path,
+        message: `Для множественного вопроса ${condition.field} разрешены условия «список содержит» и «список не пуст».`,
+      });
+    }
+    if (
+      !multiple &&
+      (condition.op === "includes" || condition.op === "non_empty")
+    ) {
+      issues.push({
+        path,
+        message: `Для одиночного вопроса ${condition.field} нельзя использовать оператор списка.`,
+      });
+    }
+    if (question.options && question.options.length > 0) {
+      const configured = question.options.map((option) => option.value);
+      const referenced =
+        condition.op === "in"
+          ? condition.values
+          : condition.op === "eq" ||
+              condition.op === "neq" ||
+              condition.op === "includes"
+            ? [condition.value]
+            : [];
+      referenced.forEach((candidate) => {
+        if (!configured.some((option) => Object.is(option, candidate))) {
+          issues.push({
+            path,
+            message: `Значение ${String(candidate)} отсутствует среди вариантов вопроса ${condition.field}.`,
+          });
+        }
+      });
+    }
+  };
+  inspectOperators(value as RoutingConditionV1);
 }
 
 export function validateRoutingContentDocument(
@@ -199,6 +317,131 @@ export function validateRoutingContentDocument(
   duplicateValues(questionIds).forEach((id) =>
     issues.push({ path: "questions", message: `Повторяется идентификатор ${id}.` }),
   );
+  const availableQuestions = new Map<string, RoutingQuestionDescriptor>();
+  questions.forEach((question, index) => {
+    if (!isRecord(question)) {
+      issues.push({
+        path: `questions[${index}]`,
+        message: "Вопрос должен быть объектом.",
+      });
+      return;
+    }
+    pushRequiredString(question.id, `questions[${index}].id`, issues);
+    if (
+      typeof question.id === "string" &&
+      !QUESTION_ID_PATTERN.test(question.id)
+    ) {
+      issues.push({
+        path: `questions[${index}].id`,
+        message: "Идентификатор вопроса: латинские буквы, цифры и подчёркивание; первый символ — буква.",
+      });
+    }
+    pushRequiredString(question.label, `questions[${index}].label`, issues);
+    if (
+      typeof question.kind !== "string" ||
+      !QUESTION_KINDS.has(question.kind as RoutingQuestionKind)
+    ) {
+      issues.push({
+        path: `questions[${index}].kind`,
+        message: "Неизвестный тип вопроса.",
+      });
+    }
+    if (
+      typeof question.requirement !== "string" ||
+      !QUESTION_REQUIREMENTS.has(
+        question.requirement as RoutingQuestionRequirement,
+      )
+    ) {
+      issues.push({
+        path: `questions[${index}].requirement`,
+        message: "Неизвестное правило обязательности.",
+      });
+    }
+    if (question.visibility !== undefined) {
+      validateQuestionCondition(
+        question.visibility,
+        `questions[${index}].visibility`,
+        availableQuestions,
+        issues,
+      );
+    }
+    if (
+      Array.isArray(question.options) &&
+      question.requirement === "conditional" &&
+      question.visibility === undefined
+    ) {
+      issues.push({
+        path: `questions[${index}].visibility`,
+        message: "Для условного динамического вопроса нужно задать условие показа.",
+      });
+    }
+
+    const options = Array.isArray(question.options) ? question.options : [];
+    const choiceQuestion =
+      question.kind === "boolean" ||
+      question.kind === "single_choice" ||
+      question.kind === "multiple_choice";
+    if (choiceQuestion && Array.isArray(question.options) && options.length === 0) {
+      issues.push({
+        path: `questions[${index}].options`,
+        message: "Список вариантов ответа не должен быть пустым.",
+      });
+    }
+    if (!choiceQuestion && options.length > 0) {
+      issues.push({
+        path: `questions[${index}].options`,
+        message: "Текстовый и числовой вопросы не должны содержать варианты ответа.",
+      });
+    }
+    const optionValues: string[] = [];
+    options.forEach((option, optionIndex) => {
+      if (!isRecord(option)) {
+        issues.push({
+          path: `questions[${index}].options[${optionIndex}]`,
+          message: "Вариант ответа должен быть объектом.",
+        });
+        return;
+      }
+      if (
+        option.value !== null &&
+        typeof option.value !== "string" &&
+        typeof option.value !== "number" &&
+        typeof option.value !== "boolean"
+      ) {
+        issues.push({
+          path: `questions[${index}].options[${optionIndex}].value`,
+          message: "Значение варианта должно быть JSON-скаляром.",
+        });
+      } else {
+        optionValues.push(JSON.stringify(option.value));
+      }
+      pushRequiredString(
+        option.label,
+        `questions[${index}].options[${optionIndex}].label`,
+        issues,
+      );
+      if (option.visibility !== undefined) {
+        validateQuestionCondition(
+          option.visibility,
+          `questions[${index}].options[${optionIndex}].visibility`,
+          availableQuestions,
+          issues,
+        );
+      }
+    });
+    duplicateValues(optionValues).forEach((value) =>
+      issues.push({
+        path: `questions[${index}].options`,
+        message: `Повторяется значение варианта ${value}.`,
+      }),
+    );
+    if (typeof question.id === "string" && question.id.trim().length > 0) {
+      availableQuestions.set(
+        question.id,
+        question as unknown as RoutingQuestionDescriptor,
+      );
+    }
+  });
 
   const branches = Array.isArray(value.branches) ? value.branches : [];
   if (!Array.isArray(value.branches) || branches.length === 0) {

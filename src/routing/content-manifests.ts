@@ -4,6 +4,13 @@ import type {
   RoutingQuestionDescriptor,
   RoutingSourceDescriptor,
 } from "./content-schema.js";
+import {
+  INFECTIOUS_ADMISSION_LABELS_V1,
+  INFECTIOUS_GROUP_LABELS_V1,
+  INFECTIOUS_LIFE_THREAT_LABELS_V1,
+  INFECTIOUS_RESPIRATORY_ADMISSION_LABELS_V1,
+  INFECTIOUS_TERRITORIES_V1,
+} from "./infectious-rules-v1.js";
 
 const UPDATED_AT = "2026-08-20T19:00:00+03:00";
 
@@ -13,8 +20,14 @@ function question(
   kind: RoutingQuestionDescriptor["kind"],
   requirement: RoutingQuestionDescriptor["requirement"],
   optionCatalog?: string,
+  extra: Partial<
+    Pick<
+      RoutingQuestionDescriptor,
+      "helpText" | "placeholder" | "visibility" | "options"
+    >
+  > = {},
 ): RoutingQuestionDescriptor {
-  return { id, label, kind, requirement, optionCatalog };
+  return { id, label, kind, requirement, optionCatalog, ...extra };
 }
 
 function branch(
@@ -288,11 +301,115 @@ export const infectiousRoutingContent = {
   changeSummary: "Фиксация взрослого инфекционного профиля и сезонного ограничения.",
   officialSourcesOnly: true,
   questions: [
-    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories"),
-    question("infectionGroup", "Группа инфекции", "single_choice", "always", "infection-groups"),
-    question("lifeThreats", "Жизнеугрожающие состояния", "multiple_choice", "always", "infection-life-threats"),
-    question("admissionCriteria", "Показания к госпитализации", "multiple_choice", "conditional", "infection-admission-criteria"),
-    question("transportable", "Пациент транспортабелен", "boolean", "conditional"),
+    question(
+      "territory",
+      "Территория вызова",
+      "single_choice",
+      "always",
+      "novgorod-territories",
+      {
+        helpText: "Муниципальный район или округ, откуда забирают пациента.",
+        placeholder: "Выберите территорию",
+        options: INFECTIOUS_TERRITORIES_V1.map((territory) => ({
+          value: territory.name,
+          label: territory.name,
+        })),
+      },
+    ),
+    question(
+      "infectionGroup",
+      "Группа инфекционного заболевания",
+      "single_choice",
+      "always",
+      "infection-groups",
+      {
+        helpText:
+          "Отдельная сезонная схема действует только для перечисленных респираторных инфекций.",
+        options: Object.entries(INFECTIOUS_GROUP_LABELS_V1).map(
+          ([value, label]) => ({ value, label }),
+        ),
+      },
+    ),
+    question(
+      "lifeThreats",
+      "Жизнеугрожающие состояния",
+      "multiple_choice",
+      "always",
+      "infection-life-threats",
+      {
+        helpText: "Отметьте все выявленные признаки или укажите, что их нет.",
+        options: Object.entries(INFECTIOUS_LIFE_THREAT_LABELS_V1).map(
+          ([value, label]) => ({
+            value,
+            label,
+            exclusive: value === "none",
+          }),
+        ),
+      },
+    ),
+    question(
+      "admissionCriteria",
+      "Показания к стационарному лечению",
+      "multiple_choice",
+      "conditional",
+      "infection-admission-criteria",
+      {
+        helpText:
+          "Отметьте все подходящие критерии. При отсутствии показаний выберите последний вариант.",
+        visibility: { op: "includes", field: "lifeThreats", value: "none" },
+        options: [
+          ...Object.entries(INFECTIOUS_ADMISSION_LABELS_V1).map(
+            ([value, label]) => ({
+              value,
+              label,
+              exclusive: value === "none",
+              visibility:
+                value === "none"
+                  ? undefined
+                  : ({
+                      op: "eq",
+                      field: "infectionGroup",
+                      value: "general",
+                    } as const),
+            }),
+          ),
+          ...Object.entries(INFECTIOUS_RESPIRATORY_ADMISSION_LABELS_V1)
+            .filter(([value]) => value !== "none")
+            .map(([value, label]) => ({
+              value,
+              label,
+              visibility: {
+                op: "in" as const,
+                field: "infectionGroup",
+                values: ["flu_orvi_vp", "covid"],
+              },
+            })),
+        ],
+      },
+    ),
+    question(
+      "transportable",
+      "Транспортабельность",
+      "boolean",
+      "conditional",
+      undefined,
+      {
+        helpText:
+          "Позволяет ли состояние выполнить прямую транспортировку в областной инфекционный стационар?",
+        visibility: {
+          op: "all",
+          conditions: [
+            { op: "eq", field: "infectionGroup", value: "general" },
+            { op: "includes", field: "lifeThreats", value: "none" },
+            { op: "includes", field: "admissionCriteria", value: "severe" },
+          ],
+        },
+        options: [
+          { value: true, label: "Да" },
+          { value: false, label: "Нет" },
+        ],
+      },
+    ),
   ],
   branches: [
     branch("life_threat", "Жизнеугрожающее инфекционное состояние", 10, "Отмечена хотя бы одна жизнеугроза.", "Согласованная ОАРИТ, после стабилизации — профильная эвакуация.", [INFECTIOUS_REGIONAL.id, INFECTIOUS_FEDERAL.id], ["INF-001"]),

@@ -12,6 +12,19 @@ export {
 } from "./content-schema.js";
 export { routingContentDocuments } from "./content-manifests.js";
 export { routingRuleSetRegistry } from "./rule-set-registry.js";
+export {
+  analyzeRoutingRuleSetAgainstQuestionnaire,
+  buildRoutingQuestionnaireScenarioMatrix,
+} from "./questionnaire-analysis.js";
+export {
+  isRoutingQuestionAnswered,
+  isRoutingQuestionVisible,
+  normalizeRoutingQuestionnaireState,
+  routingQuestionOptions,
+  setRoutingQuestionAnswer,
+  unansweredRequiredRoutingQuestions,
+  visibleRoutingQuestions,
+} from "./questionnaire-runtime.js";
 export { validateInfectiousRuleSetForEditor } from "./infectious-editor-validation.js";
 export {
   assertRoutingRuleSetV1,
@@ -20,6 +33,7 @@ export {
   parseRoutingRuleSetV1,
   ROUTING_RULES_SCHEMA_VERSION,
   validateRoutingRuleSetV1,
+  validateRoutingConditionV1,
 } from "./rules-v1.js";
 export type {
   RoutingBranchDescriptor,
@@ -30,6 +44,9 @@ export type {
   NewRoutingContentDraft,
   RoutingProfileContentDocument,
   RoutingQuestionDescriptor,
+  RoutingQuestionKind,
+  RoutingQuestionOption,
+  RoutingQuestionRequirement,
   RoutingSourceDescriptor,
 } from "./content-schema.js";
 export type {
@@ -45,6 +62,11 @@ export type {
   RoutingRuleV1,
   RoutingTemplateV1,
 } from "./rules-v1.js";
+export type { RoutingQuestionnaireState } from "./questionnaire-runtime.js";
+export type {
+  RoutingLogicAnalysis,
+  RoutingLogicAnalysisIssue,
+} from "./questionnaire-analysis.js";
 export type {
   RoutingProfileDefinition,
   RoutingProfileId,

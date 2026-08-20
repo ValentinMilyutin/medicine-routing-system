@@ -4,6 +4,7 @@ import {
   validateInfectiousRuleSetForEditor,
   type RoutingConditionV1,
   type RoutingJsonPrimitive,
+  type RoutingQuestionDescriptor,
   type RoutingRuleSetV1,
   type RoutingRuleV1,
   type RoutingTemplateV1,
@@ -136,7 +137,10 @@ function catalogLabels(
   return entries.length > 0 ? Object.fromEntries(entries) : { ...fallback };
 }
 
-function fieldSpecs(ruleSet: RoutingRuleSetV1): FieldSpec[] {
+function fieldSpecs(
+  ruleSet: RoutingRuleSetV1,
+  questions?: readonly RoutingQuestionDescriptor[],
+): FieldSpec[] {
   const groupLabels = catalogLabels(
     ruleSet,
     "groupLabels",
@@ -158,7 +162,7 @@ function fieldSpecs(ruleSet: RoutingRuleSetV1): FieldSpec[] {
     INFECTIOUS_RESPIRATORY_ADMISSION_LABELS_V1,
   );
   const admissionLabels = { ...generalAdmission, ...respiratoryAdmission };
-  return [
+  const defaults: FieldSpec[] = [
     {
       id: "territory",
       label: "Территория вызова",
@@ -193,6 +197,23 @@ function fieldSpecs(ruleSet: RoutingRuleSetV1): FieldSpec[] {
       ],
     },
   ];
+  if (!questions) return defaults;
+  return questions.map((question) => {
+    const existing = defaults.find((spec) => spec.id === question.id);
+    const configuredValues = (question.options ?? []).map((option) => ({
+      value: option.value,
+      label: option.label,
+    }));
+    return {
+      id: question.id,
+      label: question.label,
+      values:
+        configuredValues.length > 0
+          ? configuredValues
+          : (existing?.values ?? []),
+      multiple: question.kind === "multiple_choice",
+    };
+  });
 }
 
 function firstValue(spec: FieldSpec | undefined): RoutingJsonPrimitive {
@@ -200,6 +221,7 @@ function firstValue(spec: FieldSpec | undefined): RoutingJsonPrimitive {
 }
 
 function leafOperatorsFor(spec: FieldSpec): ConditionOperator[] {
+  if (spec.values.length === 0) return ["present"];
   return spec.multiple
     ? ["non_empty", "includes"]
     : ["eq", "neq", "present", "in"];
@@ -259,16 +281,20 @@ function describeValue(value: RoutingJsonPrimitive, spec: FieldSpec | undefined)
 function describeInfectiousCondition(
   condition: RoutingConditionV1,
   ruleSet: RoutingRuleSetV1,
+  questions?: readonly RoutingQuestionDescriptor[],
 ): string {
-  const specs = fieldSpecs(ruleSet);
+  const specs = fieldSpecs(ruleSet, questions);
   if (condition.op === "all" || condition.op === "any") {
     const separator = condition.op === "all" ? " И " : " ИЛИ ";
     return condition.conditions
-      .map((item) => `(${describeInfectiousCondition(item, ruleSet)})`)
+      .map(
+        (item) =>
+          `(${describeInfectiousCondition(item, ruleSet, questions)})`,
+      )
       .join(separator);
   }
   if (condition.op === "not") {
-    return `НЕ (${describeInfectiousCondition(condition.condition, ruleSet)})`;
+    return `НЕ (${describeInfectiousCondition(condition.condition, ruleSet, questions)})`;
   }
   const spec = specs.find((item) => item.id === condition.field);
   const field = spec?.label ?? condition.field;
@@ -328,15 +354,16 @@ function updateInfectiousFacility(
   };
 }
 
-function ConditionEditor(props: {
+export function InfectiousConditionEditor(props: {
   condition: RoutingConditionV1;
   ruleSet: RoutingRuleSetV1;
+  questions?: readonly RoutingQuestionDescriptor[];
   onChange: (condition: RoutingConditionV1) => void;
   onRemove?: () => void;
   depth?: number;
 }) {
   const depth = props.depth ?? 0;
-  const specs = fieldSpecs(props.ruleSet);
+  const specs = fieldSpecs(props.ruleSet, props.questions);
   const condition = props.condition;
   const leaf = condition.op !== "all" && condition.op !== "any" && condition.op !== "not";
   const selectedField = leaf
@@ -395,10 +422,11 @@ function ConditionEditor(props: {
       {condition.op === "all" || condition.op === "any" ? (
         <div className="mt-3 space-y-2 border-l-2 border-blue-200 pl-3">
           {condition.conditions.map((child, index) => (
-            <ConditionEditor
+            <InfectiousConditionEditor
               key={`${index}-${child.op}`}
               condition={child}
               ruleSet={props.ruleSet}
+              questions={props.questions}
               depth={depth + 1}
               onChange={(next) =>
                 props.onChange({
@@ -450,9 +478,10 @@ function ConditionEditor(props: {
         </div>
       ) : condition.op === "not" ? (
         <div className="mt-3 border-l-2 border-amber-200 pl-3">
-          <ConditionEditor
+          <InfectiousConditionEditor
             condition={condition.condition}
             ruleSet={props.ruleSet}
+            questions={props.questions}
             depth={depth + 1}
             onChange={(next) => props.onChange({ op: "not", condition: next })}
           />
@@ -1152,12 +1181,18 @@ function uniqueRuleId(ruleSet: RoutingRuleSetV1, base: string): string {
   return `${base}_${suffix}`;
 }
 
-function newRule(ruleSet: RoutingRuleSetV1): RoutingRuleV1 {
+function newRule(
+  ruleSet: RoutingRuleSetV1,
+  questions?: readonly RoutingQuestionDescriptor[],
+): RoutingRuleV1 {
   const priority = Math.max(0, ...ruleSet.rules.map((rule) => rule.priority)) + 10;
   return {
     id: uniqueRuleId(ruleSet, "new_route"),
     priority,
-    when: { op: "all", conditions: [makeLeafCondition(fieldSpecs(ruleSet))] },
+    when: {
+      op: "all",
+      conditions: [makeLeafCondition(fieldSpecs(ruleSet, questions))],
+    },
     result: {
       title: "Новая маршрутная ветка",
       target: { $catalog: "facilities", key: "noib" },
@@ -1173,6 +1208,7 @@ function newRule(ruleSet: RoutingRuleSetV1): RoutingRuleV1 {
 
 function RulesEditor(props: {
   ruleSet: RoutingRuleSetV1;
+  questions?: readonly RoutingQuestionDescriptor[];
   onChange: (ruleSet: RoutingRuleSetV1) => void;
 }) {
   function replaceRule(index: number, rule: RoutingRuleV1) {
@@ -1202,7 +1238,7 @@ function RulesEditor(props: {
         </div>
         <button
           type="button"
-          onClick={() => props.onChange({ ...props.ruleSet, rules: [...props.ruleSet.rules, newRule(props.ruleSet)] })}
+          onClick={() => props.onChange({ ...props.ruleSet, rules: [...props.ruleSet.rules, newRule(props.ruleSet, props.questions)] })}
           className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-medium text-white"
         >
           + Добавить ветку
@@ -1218,9 +1254,9 @@ function RulesEditor(props: {
             <span className="font-semibold">{rule.priority}. {templateSummary(asTemplateRecord(rule.result).title)}</span>
             <span
               className="mt-1 block truncate text-xs text-neutral-500"
-              title={describeInfectiousCondition(rule.when, props.ruleSet)}
+              title={describeInfectiousCondition(rule.when, props.ruleSet, props.questions)}
             >
-              {rule.id} · {describeInfectiousCondition(rule.when, props.ruleSet)}
+              {rule.id} · {describeInfectiousCondition(rule.when, props.ruleSet, props.questions)}
             </span>
             </>
           }
@@ -1250,9 +1286,10 @@ function RulesEditor(props: {
 
             <div>
               <div className="mb-2 text-sm font-medium">Когда срабатывает ветка</div>
-              <ConditionEditor
+              <InfectiousConditionEditor
                 condition={rule.when}
                 ruleSet={props.ruleSet}
+                questions={props.questions}
                 onChange={(when) => replaceRule(index, { ...rule, when })}
               />
             </div>
@@ -1307,15 +1344,21 @@ type PreviewState = {
   transportable?: boolean;
 };
 
-function Preview(props: { ruleSet: RoutingRuleSetV1 }) {
-  const specs = fieldSpecs(props.ruleSet);
+function Preview(props: {
+  ruleSet: RoutingRuleSetV1;
+  questions?: readonly RoutingQuestionDescriptor[];
+}) {
+  const specs = fieldSpecs(props.ruleSet, props.questions);
   const [state, setState] = useState<PreviewState>({
     territory: INFECTIOUS_TERRITORIES_V1[0]?.name,
     infectionGroup: "general",
     lifeThreats: ["none"],
     admissionCriteria: ["none"],
   });
-  const issues = validateInfectiousRuleSetForEditor(props.ruleSet);
+  const issues = validateInfectiousRuleSetForEditor(
+    props.ruleSet,
+    props.questions,
+  );
   const evaluation = useMemo(() => {
     if (issues.length > 0) return { error: "Сначала исправьте ошибки структуры правил." };
     try {
@@ -1466,9 +1509,13 @@ function Preview(props: { ruleSet: RoutingRuleSetV1 }) {
 
 export default function InfectiousRuleBuilder(props: {
   ruleSet: RoutingRuleSetV1;
+  questions?: readonly RoutingQuestionDescriptor[];
   onChange: (ruleSet: RoutingRuleSetV1) => void;
 }) {
-  const issues = validateInfectiousRuleSetForEditor(props.ruleSet);
+  const issues = validateInfectiousRuleSetForEditor(
+    props.ruleSet,
+    props.questions,
+  );
   return (
     <div className="space-y-4 rounded-2xl border-2 border-blue-200 bg-blue-50/30 p-4">
       <div>
@@ -1492,12 +1539,18 @@ export default function InfectiousRuleBuilder(props: {
         </div>
       )}
 
-      <OptionLabelsEditor ruleSet={props.ruleSet} onChange={props.onChange} />
+      {!props.questions ? (
+        <OptionLabelsEditor ruleSet={props.ruleSet} onChange={props.onChange} />
+      ) : null}
       <FacilityCatalogEditor ruleSet={props.ruleSet} onChange={props.onChange} />
       <TerritoryMappingsEditor ruleSet={props.ruleSet} onChange={props.onChange} />
       <SeasonalMappingsEditor ruleSet={props.ruleSet} onChange={props.onChange} />
-      <RulesEditor ruleSet={props.ruleSet} onChange={props.onChange} />
-      <Preview ruleSet={props.ruleSet} />
+      <RulesEditor
+        ruleSet={props.ruleSet}
+        questions={props.questions}
+        onChange={props.onChange}
+      />
+      <Preview ruleSet={props.ruleSet} questions={props.questions} />
     </div>
   );
 }

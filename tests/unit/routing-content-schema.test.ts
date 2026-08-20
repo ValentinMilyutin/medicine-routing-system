@@ -174,4 +174,38 @@ describe("версионируемые документы маршрутизац
       ),
     ).toBe(true);
   });
+
+  it("не разрешает переход к предыдущему вопросу через ещё недоступное поле", () => {
+    const document = mutableCopy(routingContentDocuments[4]);
+    const questions = document.questions as Array<Record<string, unknown>>;
+    questions[1]!.visibility = {
+      op: "eq",
+      field: "transportable",
+      value: true,
+    };
+
+    expect(validateRoutingContentDocument(document)).toContainEqual(
+      expect.objectContaining({
+        path: "questions[1].visibility",
+        message: expect.stringContaining("недоступный или следующий вопрос"),
+      }),
+    );
+  });
+
+  it("проверяет соответствие оператора типу ответа", () => {
+    const document = mutableCopy(routingContentDocuments[4]);
+    const questions = document.questions as Array<Record<string, unknown>>;
+    questions[3]!.visibility = {
+      op: "eq",
+      field: "lifeThreats",
+      value: "none",
+    };
+
+    expect(validateRoutingContentDocument(document)).toContainEqual(
+      expect.objectContaining({
+        path: "questions[3].visibility",
+        message: expect.stringContaining("множественного вопроса"),
+      }),
+    );
+  });
 });

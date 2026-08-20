@@ -379,6 +379,15 @@ function validateConditionV1(
   issues.push({ path: `${path}.op`, message: `Неизвестный оператор ${value.op}.` });
 }
 
+export function validateRoutingConditionV1(
+  value: unknown,
+  path = "condition",
+): RoutingRuleSetValidationIssue[] {
+  const issues: RoutingRuleSetValidationIssue[] = [];
+  validateConditionV1(value, path, issues, 0);
+  return issues;
+}
+
 function validateTemplateV1(
   value: unknown,
   path: string,

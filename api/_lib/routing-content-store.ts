@@ -111,7 +111,10 @@ function parseBundle(
     );
   }
   if (document.profileId === "infectious") {
-    const issues = validateInfectiousRuleSetForEditor(ruleSet);
+    const issues = validateInfectiousRuleSetForEditor(
+      ruleSet,
+      document.questions,
+    );
     if (issues.length > 0) {
       throw new RoutingContentInputError(
         `Инфекционный черновик не прошёл контроль сценариев:\n${issues

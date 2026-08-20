@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   validateInfectiousRuleSetForEditor,
+  validateRoutingContentDocument,
   validateRoutingRuleSetV1,
   type RoutingProfileId,
   type RoutingRuleSetV1,
 } from "../routing";
+import { infectiousRoutingContent } from "../routing/content-manifests";
 import {
   createAdminRoutingDraft,
   getAdminRoutingVersion,
@@ -14,6 +16,47 @@ import {
   type StoredRoutingVersionSummary,
 } from "./admin-content-api";
 import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
+import InfectiousQuestionnaireBuilder from "./InfectiousQuestionnaireBuilder";
+
+function withDynamicInfectiousQuestions(
+  version: StoredRoutingVersion,
+): StoredRoutingVersion {
+  if (version.profileId !== "infectious") return version;
+  const defaults = new Map(
+    infectiousRoutingContent.questions.map((question) => [question.id, question]),
+  );
+  const optionCatalogs: Record<string, string[]> = {
+    infectionGroup: ["groupLabels"],
+    lifeThreats: ["lifeThreatLabels"],
+    admissionCriteria: ["admissionGeneral", "admissionRespiratory"],
+  };
+  return {
+    ...version,
+    document: {
+      ...version.document,
+      questions: version.document.questions.map((question) => {
+        const fallback = defaults.get(question.id);
+        if (!fallback || question.options !== undefined) return question;
+        return {
+          ...fallback,
+          ...question,
+          helpText: question.helpText ?? fallback.helpText,
+          placeholder: question.placeholder ?? fallback.placeholder,
+          visibility: question.visibility ?? fallback.visibility,
+          options: fallback.options?.map((option) => {
+            const label = (optionCatalogs[question.id] ?? [])
+              .map(
+                (catalogId) =>
+                  version.ruleSet.catalogs[catalogId]?.[String(option.value)],
+              )
+              .find((value): value is string => typeof value === "string");
+            return label ? { ...option, label } : option;
+          }),
+        };
+      }),
+    },
+  };
+}
 
 function suggestedNextVersion(current: string): string {
   const match = /^(\d+)\.(\d+)\./.exec(current);
@@ -68,9 +111,10 @@ export default function AdminDrafts(props: {
   }
 
   function openEditor(version: StoredRoutingVersion) {
-    setWorking(version);
-    setEditableRuleSet(version.ruleSet);
-    setRuleJson(JSON.stringify(version.ruleSet, null, 2));
+    const editableVersion = withDynamicInfectiousQuestions(version);
+    setWorking(editableVersion);
+    setEditableRuleSet(editableVersion.ruleSet);
+    setRuleJson(JSON.stringify(editableVersion.ruleSet, null, 2));
     setNotice("");
     setError("");
   }
@@ -145,10 +189,17 @@ export default function AdminDrafts(props: {
     () =>
       editableRuleSet
         ? editableRuleSet.profileId === "infectious"
-          ? validateInfectiousRuleSetForEditor(editableRuleSet)
+          ? validateInfectiousRuleSetForEditor(
+              editableRuleSet,
+              working?.document.questions,
+            )
           : validateRoutingRuleSetV1(editableRuleSet)
         : [],
-    [editableRuleSet],
+    [editableRuleSet, working?.document.questions],
+  );
+  const editableDocumentIssues = useMemo(
+    () => (working ? validateRoutingContentDocument(working.document) : []),
+    [working],
   );
 
   if (!opened) {
@@ -264,7 +315,7 @@ export default function AdminDrafts(props: {
             />
           </label>
 
-          <details>
+          {working.profileId !== "infectious" ? <details>
             <summary className="cursor-pointer text-sm font-semibold">Подписи вопросов ({working.document.questions.length})</summary>
             <div className="mt-3 space-y-2">
               {working.document.questions.map((question, index) => (
@@ -288,7 +339,7 @@ export default function AdminDrafts(props: {
                 </label>
               ))}
             </div>
-          </details>
+          </details> : null}
 
           <details>
             <summary className="cursor-pointer text-sm font-semibold">Клинические исходы — обзор ({working.document.branches.length})</summary>
@@ -351,8 +402,21 @@ export default function AdminDrafts(props: {
 
           {working.profileId === "infectious" && editableRuleSet ? (
             <>
+              <InfectiousQuestionnaireBuilder
+                questions={working.document.questions}
+                ruleSet={editableRuleSet}
+                onChange={(questions, nextRuleSet) => {
+                  setWorking({
+                    ...working,
+                    document: { ...working.document, questions },
+                  });
+                  setEditableRuleSet(nextRuleSet);
+                  setRuleJson(JSON.stringify(nextRuleSet, null, 2));
+                }}
+              />
               <InfectiousRuleBuilder
                 ruleSet={editableRuleSet}
+                questions={working.document.questions}
                 onChange={(next) => {
                   setEditableRuleSet(next);
                   setRuleJson(JSON.stringify(next, null, 2));
@@ -387,11 +451,27 @@ export default function AdminDrafts(props: {
             </details>
           )}
 
+          {editableDocumentIssues.length > 0 ? (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <div className="font-semibold">
+                Документ черновика содержит ошибок: {editableDocumentIssues.length}
+              </div>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
+                {editableDocumentIssues.slice(0, 12).map((issue) => (
+                  <li key={`${issue.path}-${issue.message}`}>
+                    <span className="font-mono">{issue.path}</span>: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={saveDraft}
             disabled={
               loading ||
+              editableDocumentIssues.length > 0 ||
               (working.profileId === "infectious" && editableRuleIssues.length > 0)
             }
             className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"

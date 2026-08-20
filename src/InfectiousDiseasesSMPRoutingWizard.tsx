@@ -1,17 +1,16 @@
 import { type ReactNode, useMemo, useState } from "react";
+import DynamicRoutingQuestionnaire from "./DynamicRoutingQuestionnaire";
 import {
-  type InfectionGroup,
-  type LifeThreat,
-  type AnyAdmissionCriterion,
   type Facility,
   type Source,
   type FormState,
-  INFECTION_GROUP_LABELS,
-  TERRITORIES,
-  LIFE_THREAT_LABELS,
-  admissionLabelsFor,
   evaluateRouting,
 } from "./routing/infectious";
+import { infectiousRoutingContent } from "./routing/content-manifests";
+import {
+  unansweredRequiredRoutingQuestions,
+  type RoutingQuestionnaireState,
+} from "./routing";
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
@@ -19,44 +18,6 @@ function Section(props: { title: string; children: ReactNode }) {
       <h2 className="mb-4 text-lg font-bold">{props.title}</h2>
       {props.children}
     </section>
-  );
-}
-
-function ChoiceButton(props: {
-  selected: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      className={`w-full rounded-2xl border p-3 text-left transition ${
-        props.selected
-          ? "border-neutral-900 bg-neutral-900 text-white"
-          : "border-neutral-200 bg-white hover:bg-neutral-50"
-      }`}
-    >
-      {props.children}
-    </button>
-  );
-}
-
-function CheckboxChoice(props: {
-  checked: boolean;
-  onChange: () => void;
-  label: string;
-}) {
-  return (
-    <label className="flex cursor-pointer gap-3 rounded-2xl border border-neutral-200 p-3 hover:bg-neutral-50">
-      <input
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0"
-        checked={props.checked}
-        onChange={props.onChange}
-      />
-      <span className="text-sm font-medium">{props.label}</span>
-    </label>
   );
 }
 
@@ -123,71 +84,21 @@ function SourceBlock(props: { sources: Source[] }) {
 }
 
 export default function InfectiousDiseasesSMPRoutingWizard() {
-  const [state, setState] = useState<FormState>({
+  const [state, setState] = useState<RoutingQuestionnaireState>({
     lifeThreats: [],
     admissionCriteria: [],
   });
-  const result = useMemo(() => evaluateRouting(state), [state]);
-
-  const toggleLifeThreat = (item: LifeThreat) => {
-    setState((current) => {
-      if (item === "none") {
-        return {
-          ...current,
-          lifeThreats: ["none"],
-          admissionCriteria: [],
-          transportable: undefined,
-        };
-      }
-
-      const withoutNone = current.lifeThreats.filter(
-        (selected) => selected !== "none",
-      );
-      const selected = withoutNone.includes(item)
-        ? withoutNone.filter((value) => value !== item)
-        : [...withoutNone, item];
-
-      return {
-        ...current,
-        lifeThreats: selected,
-        admissionCriteria: [],
-        transportable: undefined,
-      };
-    });
-  };
-
-  const toggleAdmissionCriterion = (item: AnyAdmissionCriterion) => {
-    setState((current) => {
-      if (item === "none") {
-        return {
-          ...current,
-          admissionCriteria: ["none"],
-          transportable: undefined,
-        };
-      }
-
-      const withoutNone = current.admissionCriteria.filter(
-        (selected) => selected !== "none",
-      );
-      const selected = withoutNone.includes(item)
-        ? withoutNone.filter((value) => value !== item)
-        : [...withoutNone, item];
-
-      return {
-        ...current,
-        admissionCriteria: selected,
-        transportable: selected.includes("severe")
-          ? current.transportable
-          : undefined,
-      };
-    });
-  };
-
-  const hasLifeThreat = state.lifeThreats.some((item) => item !== "none");
-  const admissionLabels = admissionLabelsFor(state.infectionGroup);
-  const needsTransportability =
-    state.infectionGroup === "general" &&
-    state.admissionCriteria.includes("severe");
+  const missingQuestions = unansweredRequiredRoutingQuestions(
+    infectiousRoutingContent.questions,
+    state,
+  );
+  const result = useMemo(
+    () =>
+      missingQuestions.length === 0
+        ? evaluateRouting(state as FormState)
+        : null,
+    [missingQuestions.length, state],
+  );
 
   return (
     <div className="min-h-screen bg-neutral-50 p-4">
@@ -217,144 +128,19 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
 
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <div className="space-y-4">
-            <Section title="1. Территория вызова">
-              <label
-                className="mb-1 block text-sm font-medium"
-                htmlFor="infection-territory"
-              >
-                Муниципальный район или округ
-              </label>
-              <select
-                id="infection-territory"
-                className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2"
-                value={state.territory ?? ""}
-                onChange={(event) => {
-                  const territory = event.currentTarget.value;
-                  setState((current) => ({
-                    ...current,
-                    territory: territory || undefined,
-                  }));
-                }}
-              >
-                <option value="">Выберите территорию</option>
-                {TERRITORIES.map((territory) => (
-                  <option key={territory.name} value={territory.name}>
-                    {territory.name}
-                  </option>
-                ))}
-              </select>
-            </Section>
-
-            <Section title="2. Группа инфекционного заболевания">
-              <p className="mb-3 text-sm text-neutral-600">
-                Отдельная сезонная схема действует только для перечисленных
-                респираторных инфекций. Для остальных применяется общий
-                инфекционный маршрут.
-              </p>
-              <div className="space-y-2">
-                {(Object.keys(INFECTION_GROUP_LABELS) as InfectionGroup[]).map(
-                  (item) => (
-                    <ChoiceButton
-                      key={item}
-                      selected={state.infectionGroup === item}
-                      onClick={() =>
-                        setState((current) => ({
-                          ...current,
-                          infectionGroup: item,
-                          lifeThreats: [],
-                          admissionCriteria: [],
-                          transportable: undefined,
-                        }))
-                      }
-                    >
-                      <span className="font-medium">
-                        {INFECTION_GROUP_LABELS[item]}
-                      </span>
-                    </ChoiceButton>
-                  ),
-                )}
-              </div>
-            </Section>
-
-            <Section title="3. Жизнеугрожающие состояния">
-              <p className="mb-3 text-sm text-neutral-600">
-                Отметьте все выявленные признаки или укажите, что их нет.
-              </p>
-              <div className="space-y-2">
-                {(Object.keys(LIFE_THREAT_LABELS) as LifeThreat[]).map(
-                  (item) => (
-                    <CheckboxChoice
-                      key={item}
-                      checked={state.lifeThreats.includes(item)}
-                      onChange={() => toggleLifeThreat(item)}
-                      label={LIFE_THREAT_LABELS[item]}
-                    />
-                  ),
-                )}
-              </div>
-            </Section>
-
-            {state.lifeThreats.includes("none") ? (
-              <Section title="4. Показания к стационарному лечению">
-                <p className="mb-3 text-sm text-neutral-600">
-                  Отметьте все подходящие критерии. При отсутствии показаний
-                  выберите последний вариант.
-                </p>
-                <div className="space-y-2">
-                  {(Object.keys(admissionLabels) as AnyAdmissionCriterion[]).map(
-                    (item) => (
-                    <CheckboxChoice
-                      key={item}
-                      checked={state.admissionCriteria.includes(item)}
-                      onChange={() => toggleAdmissionCriterion(item)}
-                      label={admissionLabels[item]}
-                    />
-                    ),
-                  )}
-                </div>
-              </Section>
-            ) : null}
-
-            {!hasLifeThreat && needsTransportability ? (
-              <Section title="5. Транспортабельность">
-                <p className="mb-3 text-sm text-neutral-600">
-                  Позволяет ли состояние выполнить прямую транспортировку в
-                  областной инфекционный стационар?
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <ChoiceButton
-                    selected={state.transportable === true}
-                    onClick={() =>
-                      setState((current) => ({
-                        ...current,
-                        transportable: true,
-                      }))
-                    }
-                  >
-                    <span className="font-medium">Да</span>
-                  </ChoiceButton>
-                  <ChoiceButton
-                    selected={state.transportable === false}
-                    onClick={() =>
-                      setState((current) => ({
-                        ...current,
-                        transportable: false,
-                      }))
-                    }
-                  >
-                    <span className="font-medium">Нет</span>
-                  </ChoiceButton>
-                </div>
-              </Section>
-            ) : null}
+            <DynamicRoutingQuestionnaire
+              questions={infectiousRoutingContent.questions}
+              state={state}
+              onChange={setState}
+            />
           </div>
 
           <Section title="Итог маршрутизации">
             {!result ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                Выберите территорию и группу инфекционного заболевания, затем
-                оцените жизнеугрожающие состояния. Если их нет — укажите
-                показания к стационарному лечению.
+                {missingQuestions.length > 0
+                  ? `Для расчёта маршрута заполните: ${missingQuestions.map((question) => question.label).join(", ")}.`
+                  : "Ни одна ветка не подошла к выбранным параметрам. Сообщите администратору о пробеле в логике."}
               </div>
             ) : (
               <div className="space-y-4">

@@ -1,4 +1,6 @@
 import { INFECTIOUS_TERRITORIES_V1 } from "./infectious-rules-v1.js";
+import type { RoutingQuestionDescriptor } from "./content-schema.js";
+import { buildRoutingQuestionnaireScenarioMatrix } from "./questionnaire-analysis.js";
 import {
   evaluateRoutingRuleSetV1,
   validateRoutingRuleSetV1,
@@ -10,16 +12,10 @@ import {
 
 type Scenario = {
   id: string;
-  state: {
-    territory: string;
-    infectionGroup: string;
-    lifeThreats: string[];
-    admissionCriteria: string[];
-    transportable?: boolean;
-  };
+  state: Record<string, unknown>;
 };
 
-const ALLOWED_FIELDS = new Set([
+const DEFAULT_ALLOWED_FIELDS = new Set([
   "territory",
   "infectionGroup",
   "lifeThreats",
@@ -35,25 +31,42 @@ function validateConditionFields(
   condition: RoutingConditionV1,
   path: string,
   issues: RoutingRuleSetValidationIssue[],
+  questions?: readonly RoutingQuestionDescriptor[],
 ) {
   if (condition.op === "all" || condition.op === "any") {
     condition.conditions.forEach((child, index) =>
-      validateConditionFields(child, `${path}.conditions[${index}]`, issues),
+      validateConditionFields(
+        child,
+        `${path}.conditions[${index}]`,
+        issues,
+        questions,
+      ),
     );
     return;
   }
   if (condition.op === "not") {
-    validateConditionFields(condition.condition, `${path}.condition`, issues);
+    validateConditionFields(
+      condition.condition,
+      `${path}.condition`,
+      issues,
+      questions,
+    );
     return;
   }
-  if (!ALLOWED_FIELDS.has(condition.field)) {
+  const question = questions?.find((item) => item.id === condition.field);
+  const allowed = questions
+    ? questions.some((item) => item.id === condition.field)
+    : DEFAULT_ALLOWED_FIELDS.has(condition.field);
+  if (!allowed) {
     issues.push({
       path: `${path}.field`,
       message: `Поле ${condition.field} не существует в инфекционном опроснике.`,
     });
   }
-  const arrayField =
-    condition.field === "lifeThreats" || condition.field === "admissionCriteria";
+  const arrayField = question
+    ? question.kind === "multiple_choice"
+    : condition.field === "lifeThreats" ||
+      condition.field === "admissionCriteria";
   if (arrayField && condition.op !== "includes" && condition.op !== "non_empty") {
     issues.push({
       path: `${path}.op`,
@@ -69,6 +82,77 @@ function validateConditionFields(
       message: `Оператор ${condition.op} предназначен только для полей со множественным выбором.`,
     });
   }
+  if (question?.options && question.options.length > 0) {
+    const configured = question.options.map((option) => option.value);
+    const referenced =
+      condition.op === "in"
+        ? condition.values
+        : condition.op === "eq" ||
+            condition.op === "neq" ||
+            condition.op === "includes"
+          ? [condition.value]
+          : [];
+    referenced.forEach((value) => {
+      if (!configured.some((option) => Object.is(option, value))) {
+        issues.push({
+          path: `${path}.value`,
+          message: `Значение ${String(value)} отсутствует среди ответов вопроса ${condition.field}.`,
+        });
+      }
+    });
+  }
+}
+
+function validateTemplateFields(
+  value: RoutingTemplateV1,
+  path: string,
+  allowedFields: ReadonlySet<string>,
+  issues: RoutingRuleSetValidationIssue[],
+) {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      validateTemplateFields(item, `${path}[${index}]`, allowedFields, issues),
+    );
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.$field === "string") {
+    if (!allowedFields.has(record.$field)) {
+      issues.push({
+        path: `${path}.$field`,
+        message: `Поле ${record.$field} отсутствует в инфекционном опроснике.`,
+      });
+    }
+    return;
+  }
+  if (
+    isRecord(record.$joinCatalog) &&
+    typeof record.$joinCatalog.field === "string"
+  ) {
+    if (!allowedFields.has(record.$joinCatalog.field)) {
+      issues.push({
+        path: `${path}.$joinCatalog.field`,
+        message: `Поле ${record.$joinCatalog.field} отсутствует в инфекционном опроснике.`,
+      });
+    }
+    return;
+  }
+  Object.entries(record).forEach(([key, child]) =>
+    validateTemplateFields(
+      child as RoutingTemplateV1,
+      `${path}.${key}`,
+      allowedFields,
+      issues,
+    ),
+  );
 }
 
 function requiredScenarios(): Scenario[] {
@@ -209,6 +293,7 @@ function renderedResultIssues(
 
 export function validateInfectiousRuleSetForEditor(
   ruleSet: RoutingRuleSetV1,
+  questions?: readonly RoutingQuestionDescriptor[],
 ): RoutingRuleSetValidationIssue[] {
   const structural = validateRoutingRuleSetV1(ruleSet);
   if (structural.length > 0) return structural;
@@ -222,11 +307,48 @@ export function validateInfectiousRuleSetForEditor(
     return issues;
   }
   ruleSet.rules.forEach((rule, index) =>
-    validateConditionFields(rule.when, `rules[${index}].when`, issues),
+    validateConditionFields(
+      rule.when,
+      `rules[${index}].when`,
+      issues,
+      questions,
+    ),
+  );
+  const allowedTemplateFields = new Set(
+    questions?.map((question) => question.id) ?? [...DEFAULT_ALLOWED_FIELDS],
+  );
+  Object.entries(ruleSet.catalogs).forEach(([catalogId, catalog]) =>
+    Object.entries(catalog).forEach(([key, value]) =>
+      validateTemplateFields(
+        value,
+        `catalogs.${catalogId}.${key}`,
+        allowedTemplateFields,
+        issues,
+      ),
+    ),
+  );
+  ruleSet.rules.forEach((rule, index) =>
+    validateTemplateFields(
+      rule.result,
+      `rules[${index}].result`,
+      allowedTemplateFields,
+      issues,
+    ),
   );
   if (issues.length > 0) return issues;
 
-  for (const scenario of requiredScenarios()) {
+  const scenarios: Scenario[] = [...requiredScenarios()];
+  if (questions) {
+    const dynamicMatrix = buildRoutingQuestionnaireScenarioMatrix(
+      questions,
+      10_000,
+    );
+    dynamicMatrix.states.forEach((state, index) => {
+      scenarios.push({ id: `questionnaire:${index + 1}`, state });
+    });
+  }
+
+  for (const scenario of scenarios) {
     try {
       const evaluation = evaluateRoutingRuleSetV1(ruleSet, scenario.state);
       if (!evaluation) {

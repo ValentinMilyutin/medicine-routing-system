@@ -56,7 +56,7 @@ describe("пользовательские сценарии приложения
       screen.getByRole("button", { name: /Инфекционные болезни/ }),
     );
     await user.selectOptions(
-      screen.getByLabelText("Муниципальный район или округ"),
+      screen.getByLabelText("Территория вызова"),
       "Старорусский район",
     );
     await user.click(
