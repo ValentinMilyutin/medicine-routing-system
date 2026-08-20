@@ -1,10 +1,13 @@
 import { neon } from "@neondatabase/serverless";
 import {
+  approveRoutingContent,
+  archiveRoutingContent,
   assertRoutingContentDocument,
   assertRoutingRuleSetV1,
   createRoutingContentDraft,
   routingContentDocuments,
   routingRuleSetRegistry,
+  submitRoutingContentForReview,
   validateInfectiousRuleSetForEditor,
   type RoutingProfileContentDocument,
   type RoutingProfileId,
@@ -174,6 +177,22 @@ export async function getStoredRoutingVersion(
   return rows[0] ? versionFromRow(rows[0] as DatabaseRow) : null;
 }
 
+export async function getPublishedRoutingVersion(
+  profileIdValue: unknown,
+): Promise<StoredRoutingVersion | null> {
+  const profileId = routingProfileId(profileIdValue);
+  const rows = await database().query(
+    `SELECT ${VERSION_COLUMNS}, document, rule_set
+       FROM routing_content_versions
+      WHERE profile_id = $1
+        AND status = 'approved'
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    [profileId],
+  );
+  return rows[0] ? versionFromRow(rows[0] as DatabaseRow) : null;
+}
+
 function bundledVersion(profileId: RoutingProfileId): {
   document: RoutingProfileContentDocument;
   ruleSet: RoutingRuleSetV1;
@@ -315,6 +334,233 @@ export async function saveStoredRoutingDraft(input: {
   if (!rows[0]) {
     throw new RoutingVersionConflictError(
       "Черновик уже изменён, удалён или больше не доступен для редактирования.",
+    );
+  }
+  return versionFromRow(rows[0] as DatabaseRow);
+}
+
+async function currentVersionForTransition(input: {
+  id: string;
+  expectedRevision: number;
+}): Promise<StoredRoutingVersion> {
+  if (!/^\d+$/.test(input.id)) {
+    throw new RoutingContentInputError("Некорректный идентификатор версии.");
+  }
+  if (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 1) {
+    throw new RoutingContentInputError("Некорректный номер ревизии.");
+  }
+  const version = await getStoredRoutingVersion(input.id);
+  if (!version || version.revision !== input.expectedRevision) {
+    throw new RoutingVersionConflictError(
+      "Версия уже изменилась или больше не существует.",
+    );
+  }
+  return version;
+}
+
+function transformedDocument(
+  transform: () => RoutingProfileContentDocument,
+): RoutingProfileContentDocument {
+  try {
+    return transform();
+  } catch (reason) {
+    throw new RoutingContentInputError(
+      reason instanceof Error ? reason.message : "Недопустимый переход версии.",
+    );
+  }
+}
+
+export async function submitStoredRoutingVersionForReview(input: {
+  id: string;
+  expectedRevision: number;
+}): Promise<StoredRoutingVersion> {
+  const current = await currentVersionForTransition(input);
+  const document = transformedDocument(() =>
+    submitRoutingContentForReview(current.document, new Date().toISOString()),
+  );
+  const rows = await database().query(
+    `WITH updated AS (
+       UPDATE routing_content_versions
+          SET status = 'in_review',
+              document = $3::jsonb,
+              revision = revision + 1,
+              updated_at = now()
+        WHERE id = $1
+          AND revision = $2
+          AND status = 'draft'
+       RETURNING *
+     ), revision AS (
+       INSERT INTO routing_content_revisions (
+         version_id, revision, document, rule_set
+       )
+       SELECT id, revision, document, rule_set FROM updated
+     ), audit AS (
+       INSERT INTO routing_admin_audit_log (
+         version_id, profile_id, action, details
+       )
+       SELECT id, profile_id, 'submit_review',
+              jsonb_build_object('revision', revision)
+         FROM updated
+     )
+     SELECT ${VERSION_COLUMNS}, document, rule_set FROM updated`,
+    [input.id, input.expectedRevision, JSON.stringify(document)],
+  );
+  if (!rows[0]) {
+    throw new RoutingVersionConflictError(
+      "Черновик уже изменился или больше не доступен для проверки.",
+    );
+  }
+  return versionFromRow(rows[0] as DatabaseRow);
+}
+
+export async function approveStoredRoutingVersion(input: {
+  id: string;
+  expectedRevision: number;
+  decisionDocument: string;
+}): Promise<StoredRoutingVersion> {
+  const decisionDocument = input.decisionDocument.trim();
+  if (!decisionDocument || decisionDocument.length > 500) {
+    throw new RoutingContentInputError(
+      "Укажите реквизиты решения об утверждении (не более 500 символов).",
+    );
+  }
+  const current = await currentVersionForTransition(input);
+  if (current.profileId !== "infectious") {
+    throw new RoutingContentInputError(
+      "Публикация через конструктор пока разрешена только для инфекционного профиля.",
+    );
+  }
+  const approvedAt = new Date().toISOString();
+  const document = transformedDocument(() =>
+    approveRoutingContent(current.document, {
+      approvedAt,
+      approvedBy: "admin",
+      decisionDocument,
+    }),
+  );
+  const sql = database();
+  const results = await sql.transaction((tx) => [
+    tx.query(
+      `WITH candidate AS (
+         SELECT id
+           FROM routing_content_versions
+          WHERE id = $1
+            AND revision = $2
+            AND status = 'in_review'
+            AND profile_id = $3
+       ), updated AS (
+         UPDATE routing_content_versions
+            SET status = 'archived',
+                document = jsonb_set(
+                  jsonb_set(document, '{status}', '"archived"'::jsonb),
+                  '{updatedAt}', to_jsonb($4::text)
+                ),
+                revision = revision + 1,
+                updated_at = now()
+          WHERE profile_id = $3
+            AND status = 'approved'
+            AND id <> $1
+            AND EXISTS (SELECT 1 FROM candidate)
+         RETURNING *
+       ), revision AS (
+         INSERT INTO routing_content_revisions (
+           version_id, revision, document, rule_set
+         )
+         SELECT id, revision, document, rule_set FROM updated
+       ), audit AS (
+         INSERT INTO routing_admin_audit_log (
+           version_id, profile_id, action, details
+         )
+         SELECT id, profile_id, 'archive',
+                jsonb_build_object('replacedByVersionId', $1)
+           FROM updated
+       )
+       SELECT id::text FROM updated`,
+      [input.id, input.expectedRevision, current.profileId, approvedAt],
+    ),
+    tx.query(
+      `WITH updated AS (
+         UPDATE routing_content_versions
+            SET status = 'approved',
+                document = $3::jsonb,
+                revision = revision + 1,
+                updated_at = now()
+          WHERE id = $1
+            AND revision = $2
+            AND status = 'in_review'
+         RETURNING *
+       ), revision AS (
+         INSERT INTO routing_content_revisions (
+           version_id, revision, document, rule_set
+         )
+         SELECT id, revision, document, rule_set FROM updated
+       ), audit AS (
+         INSERT INTO routing_admin_audit_log (
+           version_id, profile_id, action, details
+         )
+         SELECT id, profile_id, 'approve',
+                jsonb_build_object(
+                  'revision', revision,
+                  'decisionDocument', $4::text
+                )
+           FROM updated
+       )
+       SELECT ${VERSION_COLUMNS}, document, rule_set FROM updated`,
+      [
+        input.id,
+        input.expectedRevision,
+        JSON.stringify(document),
+        decisionDocument,
+      ],
+    ),
+  ]);
+  const rows = results[1];
+  if (!rows?.[0]) {
+    throw new RoutingVersionConflictError(
+      "Версия уже изменилась или больше не ожидает утверждения.",
+    );
+  }
+  return versionFromRow(rows[0] as DatabaseRow);
+}
+
+export async function archiveStoredRoutingVersion(input: {
+  id: string;
+  expectedRevision: number;
+}): Promise<StoredRoutingVersion> {
+  const current = await currentVersionForTransition(input);
+  const document = transformedDocument(() =>
+    archiveRoutingContent(current.document, new Date().toISOString()),
+  );
+  const rows = await database().query(
+    `WITH updated AS (
+       UPDATE routing_content_versions
+          SET status = 'archived',
+              document = $3::jsonb,
+              revision = revision + 1,
+              updated_at = now()
+        WHERE id = $1
+          AND revision = $2
+          AND status = 'approved'
+       RETURNING *
+     ), revision AS (
+       INSERT INTO routing_content_revisions (
+         version_id, revision, document, rule_set
+       )
+       SELECT id, revision, document, rule_set FROM updated
+     ), audit AS (
+       INSERT INTO routing_admin_audit_log (
+         version_id, profile_id, action, details
+       )
+       SELECT id, profile_id, 'archive',
+              jsonb_build_object('revision', revision)
+         FROM updated
+     )
+     SELECT ${VERSION_COLUMNS}, document, rule_set FROM updated`,
+    [input.id, input.expectedRevision, JSON.stringify(document)],
+  );
+  if (!rows[0]) {
+    throw new RoutingVersionConflictError(
+      "Утверждённая версия уже изменилась или была архивирована.",
     );
   }
   return versionFromRow(rows[0] as DatabaseRow);

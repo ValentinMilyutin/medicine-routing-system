@@ -114,3 +114,49 @@ export async function saveAdminRoutingDraft(
   const body = await bodyOrError<{ version: StoredRoutingVersion }>(response);
   return body.version;
 }
+
+async function transitionAdminRoutingVersion(input: {
+  action: "submit_review" | "approve" | "archive";
+  version: StoredRoutingVersion;
+  decisionDocument?: string;
+}): Promise<StoredRoutingVersion> {
+  const response = await fetch("/api/admin/content", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      action: input.action,
+      id: input.version.id,
+      expectedRevision: input.version.revision,
+      decisionDocument: input.decisionDocument,
+    }),
+  });
+  const body = await bodyOrError<{ version: StoredRoutingVersion }>(response);
+  return body.version;
+}
+
+export function submitAdminRoutingVersionForReview(
+  version: StoredRoutingVersion,
+): Promise<StoredRoutingVersion> {
+  return transitionAdminRoutingVersion({ action: "submit_review", version });
+}
+
+export function approveAdminRoutingVersion(
+  version: StoredRoutingVersion,
+  decisionDocument: string,
+): Promise<StoredRoutingVersion> {
+  return transitionAdminRoutingVersion({
+    action: "approve",
+    version,
+    decisionDocument,
+  });
+}
+
+export function archiveAdminRoutingVersion(
+  version: StoredRoutingVersion,
+): Promise<StoredRoutingVersion> {
+  return transitionAdminRoutingVersion({ action: "archive", version });
+}

@@ -1,16 +1,21 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import DynamicRoutingQuestionnaire from "./DynamicRoutingQuestionnaire";
 import {
   type Facility,
   type Source,
-  type FormState,
-  evaluateRouting,
+  evaluateInfectiousRoutingRuleSet,
 } from "./routing/infectious";
 import { infectiousRoutingContent } from "./routing/content-manifests";
 import {
+  normalizeRoutingQuestionnaireState,
+  routingRuleSetRegistry,
   unansweredRequiredRoutingQuestions,
   type RoutingQuestionnaireState,
 } from "./routing";
+import {
+  loadPublishedInfectiousRoutingVersion,
+  type PublishedRoutingVersion,
+} from "./routing/published-content-api";
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
@@ -84,20 +89,54 @@ function SourceBlock(props: { sources: Source[] }) {
 }
 
 export default function InfectiousDiseasesSMPRoutingWizard() {
+  const [publishedVersion, setPublishedVersion] =
+    useState<PublishedRoutingVersion | null>(null);
+  const [publicationState, setPublicationState] = useState<
+    "loading" | "published" | "fallback"
+  >("loading");
   const [state, setState] = useState<RoutingQuestionnaireState>({
     lifeThreats: [],
     admissionCriteria: [],
   });
+  const activeDocument = publishedVersion?.document ?? infectiousRoutingContent;
+  const activeRuleSet =
+    publishedVersion?.ruleSet ?? routingRuleSetRegistry["infectious.v1"];
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadPublishedInfectiousRoutingVersion(controller.signal)
+      .then((version) => {
+        if (version) {
+          setPublishedVersion(version);
+          setState((current) =>
+            normalizeRoutingQuestionnaireState(
+              version.document.questions,
+              current,
+            ),
+          );
+          setPublicationState("published");
+        } else {
+          setPublicationState("fallback");
+        }
+      })
+      .catch((reason: unknown) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setPublicationState("fallback");
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
   const missingQuestions = unansweredRequiredRoutingQuestions(
-    infectiousRoutingContent.questions,
+    activeDocument.questions,
     state,
   );
   const result = useMemo(
     () =>
       missingQuestions.length === 0
-        ? evaluateRouting(state as FormState)
+        ? evaluateInfectiousRoutingRuleSet(activeRuleSet, state)
         : null,
-    [missingQuestions.length, state],
+    [activeRuleSet, missingQuestions.length, state],
   );
 
   return (
@@ -111,9 +150,17 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
             Территория и состояние пациента → профильный стационар и этапы
             медицинской эвакуации.
           </p>
+          <div className="mt-3 text-xs text-neutral-500">
+            {publicationState === "published" && publishedVersion
+              ? `Опубликованная версия ${publishedVersion.contentVersion}`
+              : publicationState === "loading"
+                ? "Проверка опубликованной версии…"
+                : `Встроенная резервная версия ${activeDocument.contentVersion}`}
+          </div>
         </header>
 
-        <div className="rounded-3xl border-2 border-violet-300 bg-violet-50 p-5 text-violet-950">
+        {activeDocument.blockingCuratorQuestionIds.length > 0 ? (
+          <div className="rounded-3xl border-2 border-violet-300 bg-violet-50 p-5 text-violet-950">
           <div className="text-sm font-bold uppercase tracking-wide text-violet-800">
             Вопрос для верификации куратором Минздрава
           </div>
@@ -124,12 +171,13 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
             основная ОАРИТ → резервная ОАРИТ, с адресами, контактами для
             согласования и порядком переключения при недоступности стационара.
           </p>
-        </div>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <div className="space-y-4">
             <DynamicRoutingQuestionnaire
-              questions={infectiousRoutingContent.questions}
+              questions={activeDocument.questions}
               state={state}
               onChange={setState}
             />

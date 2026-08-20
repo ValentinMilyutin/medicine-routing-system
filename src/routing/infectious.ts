@@ -8,7 +8,10 @@ import {
   INFECTIOUS_RULE_SET_V1,
   INFECTIOUS_TERRITORIES_V1,
 } from "./infectious-rules-v1.js";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import {
+  evaluateRoutingRuleSetV1,
+  type RoutingRuleSetV1,
+} from "./rules-v1.js";
 
 
 type RouteGroup = "direct" | "pestovo" | "borovichi" | "staraya_russa";
@@ -633,7 +636,14 @@ function routingResultFromRules(value: unknown): RoutingResult {
 export function evaluateRoutingRulesV1(
   state: FormState,
 ): RoutingResult | null {
-  const evaluation = evaluateRoutingRuleSetV1(INFECTIOUS_RULE_SET_V1, state);
+  return evaluateInfectiousRoutingRuleSet(INFECTIOUS_RULE_SET_V1, state);
+}
+
+export function evaluateInfectiousRoutingRuleSet(
+  ruleSet: RoutingRuleSetV1,
+  state: Record<string, unknown>,
+): RoutingResult | null {
+  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
   return evaluation ? routingResultFromRules(evaluation.result) : null;
 }
 

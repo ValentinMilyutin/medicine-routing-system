@@ -12,6 +12,8 @@ export {
 } from "./content-schema.js";
 export { routingContentDocuments } from "./content-manifests.js";
 export { routingRuleSetRegistry } from "./rule-set-registry.js";
+export { loadPublishedInfectiousRoutingVersion } from "./published-content-api.js";
+export type { PublishedRoutingVersion } from "./published-content-api.js";
 export {
   analyzeRoutingRuleSetAgainstQuestionnaire,
   buildRoutingQuestionnaireScenarioMatrix,

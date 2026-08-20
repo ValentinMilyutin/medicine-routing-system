@@ -3,6 +3,8 @@ import {
   hasAuthenticatedAdminSession,
 } from "./session.js";
 import {
+  approveStoredRoutingVersion,
+  archiveStoredRoutingVersion,
   createStoredRoutingDraft,
   DatabaseNotConfiguredError,
   getStoredRoutingVersion,
@@ -10,6 +12,7 @@ import {
   RoutingContentInputError,
   RoutingVersionConflictError,
   saveStoredRoutingDraft,
+  submitStoredRoutingVersionForReview,
 } from "../_lib/routing-content-store.js";
 
 class InvalidRequestError extends Error {}
@@ -114,6 +117,53 @@ export default {
             expectedRevision: body.expectedRevision,
             document: body.document,
             ruleSet: body.ruleSet,
+          });
+          return json({ version });
+        }
+        if (body.action === "submit_review") {
+          if (
+            typeof body.id !== "string" ||
+            typeof body.expectedRevision !== "number"
+          ) {
+            throw new InvalidRequestError(
+              "Не указаны идентификатор и ревизия версии.",
+            );
+          }
+          const version = await submitStoredRoutingVersionForReview({
+            id: body.id,
+            expectedRevision: body.expectedRevision,
+          });
+          return json({ version });
+        }
+        if (body.action === "approve") {
+          if (
+            typeof body.id !== "string" ||
+            typeof body.expectedRevision !== "number" ||
+            typeof body.decisionDocument !== "string"
+          ) {
+            throw new InvalidRequestError(
+              "Не указаны версия и реквизиты решения об утверждении.",
+            );
+          }
+          const version = await approveStoredRoutingVersion({
+            id: body.id,
+            expectedRevision: body.expectedRevision,
+            decisionDocument: body.decisionDocument,
+          });
+          return json({ version });
+        }
+        if (body.action === "archive") {
+          if (
+            typeof body.id !== "string" ||
+            typeof body.expectedRevision !== "number"
+          ) {
+            throw new InvalidRequestError(
+              "Не указаны идентификатор и ревизия версии.",
+            );
+          }
+          const version = await archiveStoredRoutingVersion({
+            id: body.id,
+            expectedRevision: body.expectedRevision,
           });
           return json({ version });
         }

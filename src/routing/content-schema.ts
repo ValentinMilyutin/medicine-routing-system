@@ -137,6 +137,11 @@ const QUESTION_REQUIREMENTS = new Set<RoutingQuestionRequirement>([
   "conditional",
   "optional",
 ]);
+const SOURCE_VERIFICATION_STATUSES = new Set<RoutingSourceVerificationStatus>([
+  "verified",
+  "needs_confirmation",
+  "season_expired",
+]);
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const QUESTION_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -476,10 +481,35 @@ export function validateRoutingContentDocument(
     issues.push({ path: "sources", message: `Повторяется идентификатор ${id}.` }),
   );
   sourceRecords.forEach((source, index) => {
+    pushRequiredString(source.id, `sources[${index}].id`, issues);
+    pushRequiredString(source.label, `sources[${index}].label`, issues);
+    if (source.authority !== "federal" && source.authority !== "regional") {
+      issues.push({
+        path: `sources[${index}].authority`,
+        message: "Источник должен быть федеральным или региональным.",
+      });
+    }
     if (source.official !== true) {
       issues.push({
         path: `sources[${index}].official`,
         message: "Источник должен быть официальным.",
+      });
+    }
+    if (
+      typeof source.verificationStatus !== "string" ||
+      !SOURCE_VERIFICATION_STATUSES.has(
+        source.verificationStatus as RoutingSourceVerificationStatus,
+      )
+    ) {
+      issues.push({
+        path: `sources[${index}].verificationStatus`,
+        message: "Неизвестный статус проверки источника.",
+      });
+    }
+    if (source.url !== undefined && typeof source.url !== "string") {
+      issues.push({
+        path: `sources[${index}].url`,
+        message: "Ссылка на источник должна быть строкой.",
       });
     }
   });

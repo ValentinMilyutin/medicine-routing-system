@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  publicationBlockers,
   validateInfectiousRuleSetForEditor,
   validateRoutingContentDocument,
   validateRoutingRuleSetV1,
@@ -8,15 +9,25 @@ import {
 } from "../routing";
 import { infectiousRoutingContent } from "../routing/content-manifests";
 import {
+  approveAdminRoutingVersion,
+  archiveAdminRoutingVersion,
   createAdminRoutingDraft,
   getAdminRoutingVersion,
   listAdminRoutingVersions,
   saveAdminRoutingDraft,
+  submitAdminRoutingVersionForReview,
   type StoredRoutingVersion,
   type StoredRoutingVersionSummary,
 } from "./admin-content-api";
 import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
 import InfectiousQuestionnaireBuilder from "./InfectiousQuestionnaireBuilder";
+
+const STATUS_LABELS = {
+  draft: "Черновик",
+  in_review: "На проверке",
+  approved: "Опубликована",
+  archived: "В архиве",
+} as const;
 
 function withDynamicInfectiousQuestions(
   version: StoredRoutingVersion,
@@ -81,6 +92,7 @@ export default function AdminDrafts(props: {
   const [working, setWorking] = useState<StoredRoutingVersion | null>(null);
   const [ruleJson, setRuleJson] = useState("");
   const [editableRuleSet, setEditableRuleSet] = useState<RoutingRuleSetV1 | null>(null);
+  const [decisionDocument, setDecisionDocument] = useState("");
 
   const profileVersions = useMemo(
     () => versions.filter((version) => version.profileId === props.profileId),
@@ -93,6 +105,7 @@ export default function AdminDrafts(props: {
     setWorking(null);
     setRuleJson("");
     setEditableRuleSet(null);
+    setDecisionDocument("");
     setError("");
     setNotice("");
   }, [props.currentVersion, props.profileId]);
@@ -117,6 +130,22 @@ export default function AdminDrafts(props: {
     setRuleJson(JSON.stringify(editableVersion.ruleSet, null, 2));
     setNotice("");
     setError("");
+    setDecisionDocument(editableVersion.document.approval?.decisionDocument ?? "");
+  }
+
+  function replaceVersion(version: StoredRoutingVersion) {
+    setVersions((current) => [
+      version,
+      ...current.filter((item) => item.id !== version.id),
+    ]);
+    openEditor(version);
+  }
+
+  function ruleSetForSave(): StoredRoutingVersion["ruleSet"] {
+    if (!working) throw new Error("Версия не открыта.");
+    return (working.profileId === "infectious" && editableRuleSet
+      ? editableRuleSet
+      : JSON.parse(ruleJson)) as StoredRoutingVersion["ruleSet"];
   }
 
   async function loadVersion(id: string) {
@@ -167,10 +196,7 @@ export default function AdminDrafts(props: {
         ruleSet: ruleSet as StoredRoutingVersion["ruleSet"],
       });
       openEditor(saved);
-      setVersions((current) => [
-        saved,
-        ...current.filter((item) => item.id !== saved.id),
-      ]);
+      setVersions((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setNotice(`Сохранена ревизия ${saved.revision}.`);
     } catch (reason) {
       setError(
@@ -180,6 +206,71 @@ export default function AdminDrafts(props: {
             ? reason.message
             : "Не удалось сохранить черновик.",
       );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitForReview() {
+    if (!working || working.status !== "draft") return;
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const saved = await saveAdminRoutingDraft({
+        ...working,
+        ruleSet: ruleSetForSave(),
+      });
+      const submitted = await submitAdminRoutingVersionForReview(saved);
+      replaceVersion(submitted);
+      setNotice(
+        "Версия сохранена и передана на проверку. С этого момента редактор заблокирован.",
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof SyntaxError
+          ? "В техническом JSON правил допущена синтаксическая ошибка."
+          : reason instanceof Error
+            ? reason.message
+            : "Не удалось передать версию на проверку.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function approveVersion() {
+    if (!working || working.status !== "in_review") return;
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const approved = await approveAdminRoutingVersion(
+        working,
+        decisionDocument.trim(),
+      );
+      replaceVersion(approved);
+      setNotice(
+        "Версия опубликована. Предыдущая опубликованная версия автоматически перенесена в архив.",
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось опубликовать версию.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function archiveVersion() {
+    if (!working || working.status !== "approved") return;
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const archived = await archiveAdminRoutingVersion(working);
+      replaceVersion(archived);
+      setNotice("Версия перенесена в архив и больше не выдаётся публичному профилю.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Не удалось архивировать версию.");
     } finally {
       setLoading(false);
     }
@@ -199,6 +290,10 @@ export default function AdminDrafts(props: {
   );
   const editableDocumentIssues = useMemo(
     () => (working ? validateRoutingContentDocument(working.document) : []),
+    [working],
+  );
+  const activePublicationBlockers = useMemo(
+    () => (working ? publicationBlockers(working.document) : []),
     [working],
   );
 
@@ -284,7 +379,9 @@ export default function AdminDrafts(props: {
               >
                 <span>
                   <span className="block text-sm font-medium">{version.contentVersion}</span>
-                  <span className="text-xs text-neutral-500">{version.status} · ревизия {version.revision}</span>
+                  <span className="text-xs text-neutral-500">
+                    {STATUS_LABELS[version.status]} · ревизия {version.revision}
+                  </span>
                 </span>
                 <span className="text-xs text-blue-700">Открыть</span>
               </button>
@@ -296,10 +393,25 @@ export default function AdminDrafts(props: {
       {working && (
         <div className="space-y-4 rounded-2xl border-2 border-neutral-300 p-4">
           <div>
-            <div className="text-xs uppercase tracking-wide text-neutral-500">Редактор черновика</div>
-            <div className="font-semibold">{working.contentVersion} · ревизия {working.revision}</div>
+            <div className="text-xs uppercase tracking-wide text-neutral-500">
+              {working.status === "draft"
+                ? "Редактор черновика"
+                : STATUS_LABELS[working.status]}
+            </div>
+            <div className="font-semibold">
+              {working.contentVersion} · ревизия {working.revision}
+            </div>
           </div>
 
+          {working.status !== "draft" ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              Содержимое этой версии защищено от изменений. Если после проверки
+              нужны исправления, создайте на её основе новую версию-черновик.
+            </div>
+          ) : null}
+
+          {working.status === "draft" ? (
+            <>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Описание изменений</span>
             <textarea
@@ -378,7 +490,9 @@ export default function AdminDrafts(props: {
             <div className="mt-3 space-y-3">
               {working.document.sources.map((source, index) => (
                 <div key={source.id} className="rounded-xl bg-neutral-50 p-3">
-                  <div className="text-xs text-neutral-500">{source.id}</div>
+                  <div className="text-xs text-neutral-500">
+                    {source.id} · {source.authority === "federal" ? "федеральный" : "региональный"}
+                  </div>
                   <input
                     aria-label={`Название источника ${source.id}`}
                     value={source.label}
@@ -395,8 +509,103 @@ export default function AdminDrafts(props: {
                     }
                     className="mt-2 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
                   />
+                  <label className="mt-2 block text-xs text-neutral-600">
+                    Ссылка на официальный источник
+                    <input
+                      value={source.url ?? ""}
+                      onChange={(event) =>
+                        setWorking({
+                          ...working,
+                          document: {
+                            ...working.document,
+                            sources: working.document.sources.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? { ...item, url: event.target.value || undefined }
+                                : item,
+                            ),
+                          },
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm text-neutral-900"
+                    />
+                  </label>
+                  <label className="mt-2 block text-xs text-neutral-600">
+                    Результат проверки
+                    <select
+                      value={source.verificationStatus}
+                      onChange={(event) =>
+                        setWorking({
+                          ...working,
+                          document: {
+                            ...working.document,
+                            sources: working.document.sources.map((item, itemIndex) =>
+                              itemIndex === index
+                                ? {
+                                    ...item,
+                                    verificationStatus: event.target.value as typeof item.verificationStatus,
+                                  }
+                                : item,
+                            ),
+                          },
+                        })
+                      }
+                      className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
+                    >
+                      <option value="verified">Проверен и действует</option>
+                      <option value="needs_confirmation">Требует подтверждения</option>
+                      <option value="season_expired">Сезон действия истёк</option>
+                    </select>
+                  </label>
                 </div>
               ))}
+            </div>
+          </details>
+
+          <details open={working.document.blockingCuratorQuestionIds.length > 0}>
+            <summary className="cursor-pointer text-sm font-semibold">
+              Вопросы к куратору ({working.document.blockingCuratorQuestionIds.length})
+            </summary>
+            <p className="mt-2 text-xs text-neutral-600">
+              Отмечайте вопрос решённым только после того, как официальный ответ
+              отражён в вопросах, ветках и источниках этой версии.
+            </p>
+            <div className="mt-3 space-y-2">
+              {working.document.blockingCuratorQuestionIds.length === 0 ? (
+                <div className="text-sm text-emerald-700">Открытых вопросов нет.</div>
+              ) : (
+                working.document.blockingCuratorQuestionIds.map((questionId) => (
+                  <div
+                    key={questionId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50 p-3"
+                  >
+                    <span className="font-mono text-xs text-violet-950">{questionId}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setWorking({
+                          ...working,
+                          document: {
+                            ...working.document,
+                            blockingCuratorQuestionIds:
+                              working.document.blockingCuratorQuestionIds.filter(
+                                (id) => id !== questionId,
+                              ),
+                            branches: working.document.branches.map((branch) => ({
+                              ...branch,
+                              curatorQuestionIds: branch.curatorQuestionIds.filter(
+                                (id) => id !== questionId,
+                              ),
+                            })),
+                          },
+                        })
+                      }
+                      className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-medium text-violet-900"
+                    >
+                      Отметить решённым
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </details>
 
@@ -466,18 +675,96 @@ export default function AdminDrafts(props: {
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={saveDraft}
-            disabled={
-              loading ||
-              editableDocumentIssues.length > 0 ||
-              (working.profileId === "infectious" && editableRuleIssues.length > 0)
-            }
-            className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-          >
-            {loading ? "Сохранение…" : "Сохранить новую ревизию"}
-          </button>
+          {activePublicationBlockers.length > 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">Публикация пока заблокирована</div>
+              <ul className="mt-1 list-disc space-y-1 pl-5 text-xs">
+                {activePublicationBlockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={saveDraft}
+              disabled={
+                loading ||
+                editableDocumentIssues.length > 0 ||
+                (working.profileId === "infectious" && editableRuleIssues.length > 0)
+              }
+              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {loading ? "Сохранение…" : "Сохранить новую ревизию"}
+            </button>
+            <button
+              type="button"
+              onClick={submitForReview}
+              disabled={
+                loading ||
+                activePublicationBlockers.length > 0 ||
+                editableDocumentIssues.length > 0 ||
+                (working.profileId === "infectious" && editableRuleIssues.length > 0)
+              }
+              className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            >
+              Сохранить и передать на проверку
+            </button>
+          </div>
+            </>
+          ) : null}
+
+          {working.status === "in_review" ? (
+            <div className="space-y-3 rounded-xl border border-blue-200 p-4">
+              <div className="font-semibold">Утверждение версии</div>
+              <p className="text-xs text-neutral-600">
+                Укажите приказ, протокол или другое официальное решение, которым
+                согласована эта редакция. После публикации она станет рабочей для
+                инфекционного профиля.
+              </p>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Реквизиты решения</span>
+                <input
+                  value={decisionDocument}
+                  onChange={(event) => setDecisionDocument(event.target.value)}
+                  placeholder="Например: протокол согласования от ДД.ММ.ГГГГ № …"
+                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={approveVersion}
+                disabled={
+                  loading ||
+                  working.profileId !== "infectious" ||
+                  activePublicationBlockers.length > 0 ||
+                  !decisionDocument.trim()
+                }
+                className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+              >
+                Утвердить и опубликовать
+              </button>
+            </div>
+          ) : null}
+
+          {working.status === "approved" ? (
+            <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <div className="font-semibold text-emerald-900">Версия опубликована</div>
+              <div className="text-xs text-emerald-900">
+                Основание: {working.document.approval?.decisionDocument}
+              </div>
+              <button
+                type="button"
+                onClick={archiveVersion}
+                disabled={loading}
+                className="rounded-xl border border-amber-400 bg-white px-4 py-2 text-sm font-medium text-amber-900 disabled:opacity-40"
+              >
+                Перенести в архив
+              </button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
