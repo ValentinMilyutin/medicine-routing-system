@@ -1,5 +1,5 @@
-import type { RoutingProfileDefinition } from "./types";
-import { oncologyRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { oncologyRoutingContent } from "./content-manifests.js";
 import {
   ONCOLOGY_GENERAL_EMERGENCY_SIGNS_V1,
   ONCOLOGY_PALLIATIVE_SYMPTOM_SIGNS_V1,
@@ -7,8 +7,8 @@ import {
   ONCOLOGY_SIGN_LABELS_V1,
   ONCOLOGY_SURGICAL_SYNDROME_SIGNS_V1,
   ONCOLOGY_TERRITORY_OPTIONS_V1,
-} from "./oncology-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./oncology-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 /**
  * MVP Wizard: Маршрутизация СМП (онкология) по текущему местоположению пациента.

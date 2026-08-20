@@ -3,7 +3,7 @@ import type {
   RoutingRuleSetV1,
   RoutingRuleV1,
   RoutingTemplateV1,
-} from "./rules-v1";
+} from "./rules-v1.js";
 
 export const BSK_FACILITIES_V1 = {
   nokb: {

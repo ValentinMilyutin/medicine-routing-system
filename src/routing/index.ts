@@ -1,4 +1,4 @@
-export { routingProfileList, routingProfileRegistry } from "./registry";
+export { routingProfileList, routingProfileRegistry } from "./registry.js";
 export {
   approveRoutingContent,
   archiveRoutingContent,
@@ -9,9 +9,9 @@ export {
   ROUTING_CONTENT_SCHEMA_VERSION,
   submitRoutingContentForReview,
   validateRoutingContentDocument,
-} from "./content-schema";
-export { routingContentDocuments } from "./content-manifests";
-export { routingRuleSetRegistry } from "./rule-set-registry";
+} from "./content-schema.js";
+export { routingContentDocuments } from "./content-manifests.js";
+export { routingRuleSetRegistry } from "./rule-set-registry.js";
 export {
   assertRoutingRuleSetV1,
   evaluateRoutingRuleSetV1,
@@ -19,7 +19,7 @@ export {
   parseRoutingRuleSetV1,
   ROUTING_RULES_SCHEMA_VERSION,
   validateRoutingRuleSetV1,
-} from "./rules-v1";
+} from "./rules-v1.js";
 export type {
   RoutingBranchDescriptor,
   RoutingContentApproval,
@@ -30,7 +30,7 @@ export type {
   RoutingProfileContentDocument,
   RoutingQuestionDescriptor,
   RoutingSourceDescriptor,
-} from "./content-schema";
+} from "./content-schema.js";
 export type {
   RoutingCatalogTemplateV1,
   RoutingConditionV1,
@@ -43,9 +43,9 @@ export type {
   RoutingRuleSetValidationIssue,
   RoutingRuleV1,
   RoutingTemplateV1,
-} from "./rules-v1";
+} from "./rules-v1.js";
 export type {
   RoutingProfileDefinition,
   RoutingProfileId,
   RoutingProfileSummary,
-} from "./types";
+} from "./types.js";

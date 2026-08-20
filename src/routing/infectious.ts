@@ -1,5 +1,5 @@
-import type { RoutingProfileDefinition } from "./types";
-import { infectiousRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { infectiousRoutingContent } from "./content-manifests.js";
 import {
   INFECTIOUS_ADMISSION_LABELS_V1,
   INFECTIOUS_GROUP_LABELS_V1,
@@ -7,8 +7,8 @@ import {
   INFECTIOUS_RESPIRATORY_ADMISSION_LABELS_V1,
   INFECTIOUS_RULE_SET_V1,
   INFECTIOUS_TERRITORIES_V1,
-} from "./infectious-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./infectious-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 
 type RouteGroup = "direct" | "pestovo" | "borovichi" | "staraya_russa";

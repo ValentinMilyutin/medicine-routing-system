@@ -1,7 +1,7 @@
 import {
   adminRequestOriginAllowed,
   hasAuthenticatedAdminSession,
-} from "./session";
+} from "./session.js";
 import {
   createStoredRoutingDraft,
   DatabaseNotConfiguredError,
@@ -10,7 +10,7 @@ import {
   RoutingContentInputError,
   RoutingVersionConflictError,
   saveStoredRoutingDraft,
-} from "../_lib/routing-content-store";
+} from "../_lib/routing-content-store.js";
 
 class InvalidRequestError extends Error {}
 

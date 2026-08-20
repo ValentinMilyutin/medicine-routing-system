@@ -2,7 +2,7 @@ import type {
   RoutingConditionV1,
   RoutingRuleSetV1,
   RoutingTemplateV1,
-} from "./rules-v1";
+} from "./rules-v1.js";
 
 export const ROAD_ACCIDENT_FACILITIES_V1 = {
   nokb: {

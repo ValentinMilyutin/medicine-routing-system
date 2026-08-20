@@ -1,7 +1,7 @@
 import type {
   RoutingContentStatus,
   RoutingProfileContentDocument,
-} from "./content-schema";
+} from "./content-schema.js";
 
 export type RoutingProfileId =
   | "obgyn"

@@ -1,4 +1,4 @@
-import type { RoutingRuleSetV1, RoutingTemplateV1 } from "./rules-v1";
+import type { RoutingRuleSetV1, RoutingTemplateV1 } from "./rules-v1.js";
 
 const FEDERAL_ORDER_URL =
   "https://publication.pravo.gov.ru/document/0001202510280015";

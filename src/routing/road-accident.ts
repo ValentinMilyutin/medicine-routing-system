@@ -1,5 +1,5 @@
-import type { RoutingProfileDefinition } from "./types";
-import { roadAccidentRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { roadAccidentRoutingContent } from "./content-manifests.js";
 import {
   ROAD_ACCIDENT_AGE_LABELS_V1,
   ROAD_ACCIDENT_INJURY_LABELS_V1,
@@ -7,8 +7,8 @@ import {
   ROAD_ACCIDENT_M11_ZONES_V1,
   ROAD_ACCIDENT_RULE_SET_V1,
   ROAD_ACCIDENT_TERRITORIES_V1,
-} from "./road-accident-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./road-accident-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 export type AgeGroup = "child_0_15" | "age_16_17" | "adult_18_plus";
 export type LocationKind = "territory" | "m10" | "m11";

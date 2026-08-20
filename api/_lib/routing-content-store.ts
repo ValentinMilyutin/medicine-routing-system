@@ -8,7 +8,7 @@ import {
   type RoutingProfileContentDocument,
   type RoutingProfileId,
   type RoutingRuleSetV1,
-} from "../../src/routing";
+} from "../../src/routing/index.js";
 
 export class DatabaseNotConfiguredError extends Error {}
 export class RoutingVersionConflictError extends Error {}

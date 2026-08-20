@@ -1,11 +1,11 @@
-import type { RoutingProfileDefinition } from "./types";
-import { dermatologyRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { dermatologyRoutingContent } from "./content-manifests.js";
 import {
   DERMATOLOGY_CONDITION_LABELS,
   DERMATOLOGY_RULE_SET_V1,
   DERMATOLOGY_TERRITORIES,
-} from "./dermatology-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./dermatology-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 
 export type Condition =

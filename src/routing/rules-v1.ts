@@ -1,4 +1,4 @@
-import type { RoutingProfileId } from "./types";
+import type { RoutingProfileId } from "./types.js";
 
 export const ROUTING_RULES_SCHEMA_VERSION = 1 as const;
 

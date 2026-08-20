@@ -1,13 +1,13 @@
-import type { RoutingProfileDefinition } from "./types";
-import { obstetricsRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { obstetricsRoutingContent } from "./content-manifests.js";
 import {
   OBSTETRICS_RULE_SET_V1,
   OBSTETRICS_TERRITORIES_BOROVICHI_V1,
   OBSTETRICS_TERRITORIES_NOVGOROD_V1,
   OBSTETRICS_TERRITORIES_STARAYA_RUSSA_V1,
   OBSTETRICS_TERRITORIES_VALDAI_V1,
-} from "./obstetrics-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./obstetrics-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 export type Scenario = "gyne_lt37" | "obstetrics_ge37" | "postpartum_le42";
 export type InfectionType = "none" | "arvi_pneumo" | "flu_covid";

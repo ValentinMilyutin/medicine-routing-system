@@ -3,7 +3,7 @@ import type {
   RoutingProfileContentDocument,
   RoutingQuestionDescriptor,
   RoutingSourceDescriptor,
-} from "./content-schema";
+} from "./content-schema.js";
 
 const UPDATED_AT = "2026-08-20T19:00:00+03:00";
 

@@ -2,7 +2,7 @@ import type {
   RoutingConditionV1,
   RoutingRuleSetV1,
   RoutingTemplateV1,
-} from "./rules-v1";
+} from "./rules-v1.js";
 
 const FEDERAL_ADULT_ORDER_URL =
   "https://publication.pravo.gov.ru/document/0001202509230019";

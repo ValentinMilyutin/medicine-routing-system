@@ -1,11 +1,11 @@
-import type { RoutingProfileDefinition } from "./types";
-import { bskRoutingContent } from "./content-manifests";
+import type { RoutingProfileDefinition } from "./types.js";
+import { bskRoutingContent } from "./content-manifests.js";
 import {
   BSK_BRANCH_LABELS_V1,
   BSK_RULE_SET_V1,
   BSK_TERRITORIES_V1,
-} from "./bsk-rules-v1";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1";
+} from "./bsk-rules-v1.js";
+import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
 
 export type Branch = "stroke" | "acs" | "other_cvd" | "kink";
 

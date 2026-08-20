@@ -1,10 +1,10 @@
-import { bskRoutingProfile } from "./bsk";
-import { dermatologyRoutingProfile } from "./dermatology";
-import { infectiousRoutingProfile } from "./infectious";
-import { obstetricsRoutingProfile } from "./obstetrics";
-import { oncologyRoutingProfile } from "./oncology";
-import { roadAccidentRoutingProfile } from "./road-accident";
-import type { RoutingProfileId, RoutingProfileSummary } from "./types";
+import { bskRoutingProfile } from "./bsk.js";
+import { dermatologyRoutingProfile } from "./dermatology.js";
+import { infectiousRoutingProfile } from "./infectious.js";
+import { obstetricsRoutingProfile } from "./obstetrics.js";
+import { oncologyRoutingProfile } from "./oncology.js";
+import { roadAccidentRoutingProfile } from "./road-accident.js";
+import type { RoutingProfileId, RoutingProfileSummary } from "./types.js";
 
 export const routingProfileRegistry = {
   obgyn: obstetricsRoutingProfile,
@@ -25,4 +25,4 @@ export const routingProfileList: readonly RoutingProfileSummary[] = Object.value
   status: content.status,
 }));
 
-export type { RoutingProfileId } from "./types";
+export type { RoutingProfileId } from "./types.js";
