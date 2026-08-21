@@ -50,6 +50,26 @@ export type RoutingQuestionDescriptor = {
   options?: readonly RoutingQuestionOption[];
 };
 
+export type RoutingControlCaseExpectation = {
+  ruleId: string;
+  title: string;
+  targetName: string;
+  targetAddress: string;
+  nextTargetName?: string;
+};
+
+export type RoutingControlCase = {
+  id: string;
+  label: string;
+  state: Readonly<
+    Record<
+      string,
+      RoutingJsonPrimitive | readonly RoutingJsonPrimitive[]
+    >
+  >;
+  expected: RoutingControlCaseExpectation;
+};
+
 export type RoutingSourceDescriptor = {
   id: string;
   label: string;
@@ -98,6 +118,7 @@ export type RoutingProfileContentDocument = {
   questions: readonly RoutingQuestionDescriptor[];
   branches: readonly RoutingBranchDescriptor[];
   sources: readonly RoutingSourceDescriptor[];
+  controlCases?: readonly RoutingControlCase[];
   blockingCuratorQuestionIds: readonly string[];
   execution: RoutingExecutionDescriptor;
   approval?: RoutingContentApproval;
@@ -445,6 +466,96 @@ export function validateRoutingContentDocument(
         question.id,
         question as unknown as RoutingQuestionDescriptor,
       );
+    }
+  });
+
+  const controlCases = Array.isArray(value.controlCases)
+    ? value.controlCases
+    : [];
+  if (value.controlCases !== undefined && !Array.isArray(value.controlCases)) {
+    issues.push({
+      path: "controlCases",
+      message: "Контрольные примеры должны быть списком.",
+    });
+  }
+  const controlCaseIds = controlCases
+    .filter(isRecord)
+    .map((controlCase) => controlCase.id)
+    .filter((id): id is string => typeof id === "string");
+  duplicateValues(controlCaseIds).forEach((id) =>
+    issues.push({
+      path: "controlCases",
+      message: `Повторяется идентификатор контрольного примера ${id}.`,
+    }),
+  );
+  controlCases.forEach((controlCase, index) => {
+    const path = `controlCases[${index}]`;
+    if (!isRecord(controlCase)) {
+      issues.push({ path, message: "Контрольный пример должен быть объектом." });
+      return;
+    }
+    pushRequiredString(controlCase.id, `${path}.id`, issues);
+    if (
+      typeof controlCase.id === "string" &&
+      !QUESTION_ID_PATTERN.test(controlCase.id)
+    ) {
+      issues.push({
+        path: `${path}.id`,
+        message: "Идентификатор примера: латинские буквы, цифры и подчёркивание; первый символ — буква.",
+      });
+    }
+    pushRequiredString(controlCase.label, `${path}.label`, issues);
+    if (!isRecord(controlCase.state)) {
+      issues.push({
+        path: `${path}.state`,
+        message: "Ответы контрольного примера должны быть объектом.",
+      });
+    } else {
+      Object.entries(controlCase.state).forEach(([field, answer]) => {
+        const values = Array.isArray(answer) ? answer : [answer];
+        if (
+          values.some(
+            (item) =>
+              item !== null &&
+              typeof item !== "string" &&
+              typeof item !== "number" &&
+              typeof item !== "boolean",
+          )
+        ) {
+          issues.push({
+            path: `${path}.state.${field}`,
+            message: "Ответ должен быть JSON-скаляром или списком JSON-скаляров.",
+          });
+        }
+      });
+    }
+    if (!isRecord(controlCase.expected)) {
+      issues.push({
+        path: `${path}.expected`,
+        message: "Нужно зафиксировать ожидаемый маршрут.",
+      });
+    } else {
+      for (const field of [
+        "ruleId",
+        "title",
+        "targetName",
+        "targetAddress",
+      ] as const) {
+        pushRequiredString(
+          controlCase.expected[field],
+          `${path}.expected.${field}`,
+          issues,
+        );
+      }
+      if (
+        controlCase.expected.nextTargetName !== undefined &&
+        typeof controlCase.expected.nextTargetName !== "string"
+      ) {
+        issues.push({
+          path: `${path}.expected.nextTargetName`,
+          message: "Название следующего этапа должно быть строкой.",
+        });
+      }
     }
   });
 

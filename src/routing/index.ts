@@ -28,8 +28,18 @@ export {
   visibleRoutingQuestions,
 } from "./questionnaire-runtime.js";
 export { validateInfectiousRuleSetForEditor } from "./infectious-editor-validation.js";
+export {
+  captureRoutingControlCaseExpectation,
+  checkRoutingControlCase,
+  describeRoutingControlState,
+  suggestRoutingControlCases,
+  validateInfectiousControlCases,
+  validateInfectiousPublicationReadiness,
+} from "./control-cases.js";
+export type { RoutingControlCaseCheck } from "./control-cases.js";
 export { hydrateLegacyInfectiousQuestions } from "./infectious-question-migration.js";
 export { compareRoutingVersions } from "./version-diff.js";
+export { compareRoutingBehavior } from "./behavior-diff.js";
 export type {
   RoutingVersionChange,
   RoutingVersionChangeCategory,
@@ -47,6 +57,8 @@ export {
 export type {
   RoutingBranchDescriptor,
   RoutingContentApproval,
+  RoutingControlCase,
+  RoutingControlCaseExpectation,
   RoutingContentStatus,
   RoutingContentValidationIssue,
   RoutingExecutionDescriptor,
@@ -58,6 +70,11 @@ export type {
   RoutingQuestionRequirement,
   RoutingSourceDescriptor,
 } from "./content-schema.js";
+export type {
+  RoutingBehaviorChange,
+  RoutingBehaviorDiff,
+  RoutingBehaviorOutcome,
+} from "./behavior-diff.js";
 export type {
   RoutingCatalogTemplateV1,
   RoutingConditionV1,

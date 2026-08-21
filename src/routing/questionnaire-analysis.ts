@@ -11,7 +11,13 @@ import {
 } from "./rules-v1.js";
 
 export type RoutingLogicAnalysisIssue = {
-  kind: "gap" | "unreachable" | "shadowed" | "duplicate" | "limit";
+  kind:
+    | "gap"
+    | "overlap"
+    | "unreachable"
+    | "shadowed"
+    | "duplicate"
+    | "limit";
   ruleId?: string;
   message: string;
 };
@@ -37,11 +43,16 @@ function candidateAnswers(
   const options = routingQuestionOptions(question, state);
   if (question.kind === "multiple_choice") {
     const singles = options.map((option) => [option.value]);
-    const combined = options
+    const selectable = options
       .filter((option) => !option.exclusive)
       .map((option) => option.value);
-    const answers: unknown[] = [...singles];
-    if (combined.length > 1) answers.push(combined);
+    const pairs = selectable.flatMap((left, leftIndex) =>
+      selectable
+        .slice(leftIndex + 1)
+        .map((right) => [left, right]),
+    );
+    const answers: unknown[] = [...singles, ...pairs];
+    if (selectable.length > 2) answers.push(selectable);
     if (question.requirement === "optional") answers.unshift([]);
     return answers.length > 0 ? answers : [[]];
   }
@@ -57,6 +68,15 @@ export function buildRoutingQuestionnaireScenarioMatrix(
   let states: RoutingQuestionnaireState[] = [{}];
   let complete = true;
   for (const question of questions) {
+    if (question.kind === "number" || question.kind === "text") {
+      complete = false;
+    }
+    if (
+      question.kind === "multiple_choice" &&
+      (question.options?.filter((option) => !option.exclusive).length ?? 0) > 2
+    ) {
+      complete = false;
+    }
     const expanded: RoutingQuestionnaireState[] = [];
     for (const state of states) {
       const normalized = normalizeRoutingQuestionnaireState(questions, state);
@@ -141,6 +161,12 @@ export function analyzeRoutingRuleSetAgainstQuestionnaire(
       message: `${gapCount} из ${matrix.states.length} контрольных сочетаний не дают результата маршрутизации.`,
     });
   }
+  if (overlapScenarioCount > 0) {
+    issues.push({
+      kind: "overlap",
+      message: `${overlapScenarioCount} контрольных сочетаний одновременно подходят нескольким веткам. Уточните условия так, чтобы итоговая ветка была однозначной.`,
+    });
+  }
   if (renderErrorCount > 0) {
     issues.push({
       kind: "gap",
@@ -180,7 +206,7 @@ export function analyzeRoutingRuleSetAgainstQuestionnaire(
   if (!matrix.complete) {
     issues.push({
       kind: "limit",
-      message: `Комбинаций слишком много: проверена равномерная выборка из ${matrix.states.length}.`,
+      message: `Проверена контрольная матрица из ${matrix.states.length} сочетаний. Для множественных, текстовых или числовых полей она является покрытием характерных случаев, а не полным перебором всех возможных ответов.`,
     });
   }
 

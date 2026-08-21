@@ -11,8 +11,11 @@ import { evaluateInfectiousRoutingRuleSet } from "../routing/infectious";
 export default function InfectiousVersionPreview(props: {
   document: RoutingProfileContentDocument;
   ruleSet: RoutingRuleSetV1;
+  initialState?: RoutingQuestionnaireState;
 }) {
-  const [state, setState] = useState<RoutingQuestionnaireState>({});
+  const [state, setState] = useState<RoutingQuestionnaireState>(
+    props.initialState ?? {},
+  );
   const missing = unansweredRequiredRoutingQuestions(
     props.document.questions,
     state,

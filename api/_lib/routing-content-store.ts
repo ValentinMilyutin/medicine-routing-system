@@ -9,6 +9,7 @@ import {
   routingContentDocuments,
   routingRuleSetRegistry,
   submitRoutingContentForReview,
+  validateInfectiousPublicationReadiness,
   validateInfectiousRuleSetForEditor,
   type RoutingProfileContentDocument,
   type RoutingProfileId,
@@ -435,11 +436,28 @@ function transformedDocument(
   }
 }
 
+function assertPublicationReady(version: StoredRoutingVersion) {
+  if (version.profileId !== "infectious") return;
+  const issues = validateInfectiousPublicationReadiness(
+    version.document.questions,
+    version.ruleSet,
+    version.document.controlCases,
+  );
+  if (issues.length > 0) {
+    throw new RoutingContentInputError(
+      `Версия не готова к публикации:\n${issues
+        .map((issue) => `${issue.path}: ${issue.message}`)
+        .join("\n")}`,
+    );
+  }
+}
+
 export async function submitStoredRoutingVersionForReview(input: {
   id: string;
   expectedRevision: number;
 }): Promise<StoredRoutingVersion> {
   const current = await currentVersionForTransition(input);
+  assertPublicationReady(current);
   const document = transformedDocument(() =>
     submitRoutingContentForReview(current.document, new Date().toISOString()),
   );
@@ -495,6 +513,7 @@ export async function approveStoredRoutingVersion(input: {
       "Публикация через конструктор пока разрешена только для инфекционного профиля.",
     );
   }
+  assertPublicationReady(current);
   const approvedAt = new Date().toISOString();
   const document = transformedDocument(() =>
     approveRoutingContent(current.document, {

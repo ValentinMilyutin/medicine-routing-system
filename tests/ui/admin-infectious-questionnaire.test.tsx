@@ -46,7 +46,15 @@ describe("конструктор инфекционного опросника",
   it("показывает автоматическую проверку контрольной матрицы", () => {
     render(<Harness />);
     expect(
-      screen.getByText(/Автоматическая проверка логики ·/),
+      screen.getByText(/Контрольная проверка сценариев ·/),
     ).toBeInTheDocument();
+  });
+
+  it("не предлагает неподдерживаемые текстовые и числовые вопросы", () => {
+    render(<Harness />);
+    const typeSelectors = screen.getAllByLabelText("Тип ответа");
+    expect(typeSelectors.length).toBeGreaterThan(0);
+    expect(screen.queryByRole("option", { name: "Число" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Текст" })).not.toBeInTheDocument();
   });
 });

@@ -3,10 +3,12 @@ import {
   compareRoutingVersions,
   hydrateLegacyInfectiousQuestions,
   publicationBlockers,
+  validateInfectiousPublicationReadiness,
   validateInfectiousRuleSetForEditor,
   validateRoutingContentDocument,
   validateRoutingRuleSetV1,
   type RoutingProfileId,
+  type RoutingQuestionnaireState,
   type RoutingRuleSetV1,
 } from "../routing";
 import {
@@ -25,6 +27,7 @@ import {
 import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
 import InfectiousQuestionnaireBuilder from "./InfectiousQuestionnaireBuilder";
 import InfectiousVersionPreview from "./InfectiousVersionPreview";
+import InfectiousControlCaseBuilder from "./InfectiousControlCaseBuilder";
 import RoutingVersionComparison from "./RoutingVersionComparison";
 
 const STATUS_LABELS = {
@@ -88,6 +91,8 @@ export default function AdminDrafts(props: {
   const [decisionDocument, setDecisionDocument] = useState("");
   const [previewCurrent, setPreviewCurrent] = useState(false);
   const [previewSelected, setPreviewSelected] = useState(false);
+  const [inspectionState, setInspectionState] =
+    useState<RoutingQuestionnaireState | null>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const workingId = working?.id;
 
@@ -118,6 +123,7 @@ export default function AdminDrafts(props: {
     setVersionDetails({});
     setPreviewCurrent(false);
     setPreviewSelected(false);
+    setInspectionState(null);
     setError("");
     setNotice("");
   }, [props.currentVersion, props.profileId]);
@@ -186,6 +192,7 @@ export default function AdminDrafts(props: {
     setError("");
     setDecisionDocument(editableVersion.document.approval?.decisionDocument ?? "");
     setPreviewSelected(false);
+    setInspectionState(null);
   }
 
   function replaceVersion(version: StoredRoutingVersion) {
@@ -352,9 +359,37 @@ export default function AdminDrafts(props: {
     () => (working ? validateRoutingContentDocument(working.document) : []),
     [working],
   );
+  const publicationQuestions = working?.document.questions;
+  const publicationControlCases = working?.document.controlCases;
+  const editablePublicationIssues = useMemo(
+    () =>
+      working?.profileId === "infectious" &&
+      editableRuleSet &&
+      publicationQuestions
+        ? validateInfectiousPublicationReadiness(
+            publicationQuestions,
+            editableRuleSet,
+            publicationControlCases,
+          )
+        : [],
+    [
+      editableRuleSet,
+      publicationControlCases,
+      publicationQuestions,
+      working?.profileId,
+    ],
+  );
   const activePublicationBlockers = useMemo(
-    () => (working ? publicationBlockers(working.document) : []),
-    [working],
+    () =>
+      working
+        ? [
+            ...publicationBlockers(working.document),
+            ...editablePublicationIssues.map(
+              (issue) => `${issue.path}: ${issue.message}`,
+            ),
+          ]
+        : [],
+    [editablePublicationIssues, working],
   );
 
   if (!opened) {
@@ -572,7 +607,14 @@ export default function AdminDrafts(props: {
           </div>
 
           {effectiveVersion ? (
-            <RoutingVersionComparison current={effectiveVersion} candidate={working} />
+            <RoutingVersionComparison
+              current={effectiveVersion}
+              candidate={working}
+              onInspectScenario={(state) => {
+                setInspectionState(state);
+                setPreviewSelected(true);
+              }}
+            />
           ) : null}
 
           {working.profileId === "infectious" ? (
@@ -589,9 +631,10 @@ export default function AdminDrafts(props: {
 
           {previewSelected && working.profileId === "infectious" && editableRuleSet ? (
             <InfectiousVersionPreview
-              key={`${working.id}-${working.revision}`}
+              key={`${working.id}-${working.revision}-${JSON.stringify(inspectionState)}`}
               document={working.document}
               ruleSet={editableRuleSet}
+              initialState={inspectionState ?? undefined}
             />
           ) : null}
 
@@ -822,6 +865,16 @@ export default function AdminDrafts(props: {
                   setEditableRuleSet(next);
                   setRuleJson(JSON.stringify(next, null, 2));
                 }}
+              />
+              <InfectiousControlCaseBuilder
+                document={working.document}
+                ruleSet={editableRuleSet}
+                onChange={(controlCases) =>
+                  setWorking({
+                    ...working,
+                    document: { ...working.document, controlCases },
+                  })
+                }
               />
               <details>
                 <summary className="cursor-pointer text-sm font-semibold">Технический JSON — только просмотр</summary>

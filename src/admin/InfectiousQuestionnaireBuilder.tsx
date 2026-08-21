@@ -507,6 +507,12 @@ const KIND_LABELS: Record<RoutingQuestionKind, string> = {
   text: "Текст",
 };
 
+const EDITABLE_KINDS: readonly RoutingQuestionKind[] = [
+  "boolean",
+  "single_choice",
+  "multiple_choice",
+];
+
 const REQUIREMENT_LABELS: Record<RoutingQuestionRequirement, string> = {
   always: "Обязателен",
   conditional: "Обязателен при показе",
@@ -734,12 +740,25 @@ export default function InfectiousQuestionnaireBuilder(props: {
                       }}
                       className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900"
                     >
-                      {Object.entries(KIND_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
+                      {!EDITABLE_KINDS.includes(question.kind) ? (
+                        <option value={question.kind}>
+                          {KIND_LABELS[question.kind]} — нужно заменить перед публикацией
+                        </option>
+                      ) : null}
+                      {EDITABLE_KINDS.map((value) => (
+                        <option key={value} value={value}>{KIND_LABELS[value]}</option>
                       ))}
                     </select>
                   </label>
                 </div>
+
+                {!EDITABLE_KINDS.includes(question.kind) ? (
+                  <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                    Этот тип пока не имеет достаточных ограничений и операторов
+                    для безопасной маршрутизации. Замените его на «Да / нет»,
+                    «Один вариант» или «Несколько вариантов».
+                  </div>
+                ) : null}
 
                 <label className="block text-xs text-neutral-600">
                   Текст вопроса
@@ -1067,12 +1086,12 @@ export default function InfectiousQuestionnaireBuilder(props: {
 
       <details className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/50 p-4">
         <summary className="cursor-pointer font-semibold">
-          Автоматическая проверка логики · {analysis.scenarioCount} сочетаний
+          Контрольная проверка сценариев · {analysis.scenarioCount} сочетаний
         </summary>
         <div className="mt-3 space-y-3 text-sm">
           {analysis.issues.length === 0 ? (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-emerald-800">
-              Во всей контрольной матрице есть результат, и каждая ветка хотя бы один раз становится итоговой.
+              Во всех проверенных контрольных сценариях есть результат, и каждая ветка хотя бы один раз становится итоговой.
             </div>
           ) : (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
@@ -1085,7 +1104,9 @@ export default function InfectiousQuestionnaireBuilder(props: {
             </div>
           )}
           <p className="text-xs text-neutral-600">
-            Пересечение условий найдено в {analysis.overlapScenarioCount} сочетаниях. Это допустимо для резервных веток: итог выбирается по приоритету. Ошибкой считается ветка, которая всегда перекрыта, или сочетание без результата.
+            Пересечение условий найдено в {analysis.overlapScenarioCount} сочетаниях.
+            До публикации каждое пересечение нужно устранить. Во время работы
+            черновика итог по-прежнему выбирается по приоритету.
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {Object.entries(analysis.winnerCounts).map(([ruleId, count]) => (
