@@ -165,10 +165,12 @@ export const DERMATOLOGY_RULE_SET_V1 = {
           ],
         },
         target: { $catalog: "facilities", key: "nearestIcu" },
+        targetLabel: "Первый этап маршрута",
         afterStabilization: {
           $catalog: "facilities",
           key: "nokvdInpatient",
         },
+        afterStabilizationLabel: "После стабилизации",
         urgency: "Экстренно",
         transport:
           "Бригадой СМП после оперативного согласования принимающей медицинской организации.",
@@ -209,6 +211,7 @@ export const DERMATOLOGY_RULE_SET_V1 = {
       result: {
         title: "Показана специализированная стационарная помощь",
         target: { $catalog: "facilities", key: "nokvdInpatient" },
+        targetLabel: "Куда госпитализировать",
         urgency: "По клиническим показаниям",
         transport:
           "Способ транспортировки определяется состоянием пациента; госпитализацию предварительно согласовать.",
@@ -241,6 +244,7 @@ export const DERMATOLOGY_RULE_SET_V1 = {
       result: {
         title: "Амбулаторный маршрут по территории",
         target: { $catalog: "territories", key: { $field: "territory" } },
+        targetLabel: "Куда направить пациента",
         urgency: "Планово или неотложно — по клиническому состоянию",
         transport:
           "Экстренная транспортировка СМП по этой ветке приказом не предусмотрена; организовать направление или рекомендовать обращение.",

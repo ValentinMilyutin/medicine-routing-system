@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
@@ -34,7 +34,7 @@ describe("пользовательские сценарии приложения
       screen.getByRole("button", { name: /Дерматовенерология/ }),
     );
     await user.selectOptions(
-      screen.getByLabelText("Муниципальный район или округ"),
+      screen.getByLabelText("Территория вызова"),
       "Боровичский район",
     );
     await user.click(screen.getByRole("button", { name: "Отёк Квинке" }));
@@ -83,6 +83,79 @@ describe("пользовательские сценарии приложения
     expect(
       screen.getByText("ГОБУЗ «Старорусская центральная районная больница»"),
     ).toBeInTheDocument();
+  });
+
+  it("проходит ветку ДТП до конкретного травмоцентра и адреса", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(JSON.stringify({ version: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: /ДТП \/ травма/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Муниципальная территория или другая дорога",
+      }),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Муниципальная территория"),
+      "Батецкий район",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Взрослый, 18 лет и старше" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Другая травма без шока и без перечисленных признаков",
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        "ГОБУЗ «Центральная городская клиническая больница», Клиника № 1",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Великий Новгород, ул. Зелинского, д. 11")).toBeInTheDocument();
+  });
+
+  it("проходит онкологическую ветку медицинской перевозки до учреждения и адреса", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ version: null }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /Онкология/ }));
+    await user.selectOptions(screen.getByLabelText("Территория вызова"), "Великий Новгород");
+    await user.click(screen.getByRole("button", { name: "Установленное злокачественное новообразование" }));
+    const transportQuestion = document.querySelector('[data-question-id="medicalTransportNeeded"]');
+    if (!transportQuestion) throw new Error("Не найден вопрос о медицинской перевозке.");
+    await user.click(within(transportQuestion).getByRole("button", { name: "Да" }));
+    expect(screen.getByText(/Медицинская транспортировка без признаков/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Центральная городская клиническая больница/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Великий Новгород, ул. Зелинского, д. 11").length).toBeGreaterThan(0);
+  });
+
+  it("проходит гинекологическую территориальную ветку до учреждения и адреса", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ version: null }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("button", { name: /Акушерство \/ гинекология/ }));
+    await user.click(screen.getByRole("button", { name: "Гинекология / беременность менее 37 недель" }));
+    await user.selectOptions(screen.getByLabelText("Территория вызова"), "Великий Новгород");
+    for (const id of ["critical", "trauma", "surgery", "extragenitalInpatient"]) {
+      const element = document.querySelector(`[data-question-id="${id}"]`);
+      if (!element) throw new Error(`Не найден вопрос ${id}.`);
+      await user.click(within(element).getByRole("button", { name: "Нет" }));
+    }
+    await user.click(screen.getByRole("button", { name: "Инфекционного синдрома нет" }));
+    expect(screen.getAllByText(/Профиль: гинекология/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Центральная городская клиническая больница/)).toBeInTheDocument();
+    expect(screen.getByText("Великий Новгород, ул. Зелинского, д. 11")).toBeInTheDocument();
   });
 
   it("возвращается из профиля к общему выбору", async () => {

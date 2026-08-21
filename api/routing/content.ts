@@ -24,7 +24,14 @@ export default {
       });
     }
     const profileId = new URL(request.url).searchParams.get("profileId");
-    if (profileId !== "infectious") {
+    if (
+      profileId !== "infectious" &&
+      profileId !== "road_accident" &&
+      profileId !== "dermatology" &&
+      profileId !== "bsk" &&
+      profileId !== "oncology" &&
+      profileId !== "obgyn"
+    ) {
       return json({ error: "unsupported_profile" }, 400);
     }
     try {

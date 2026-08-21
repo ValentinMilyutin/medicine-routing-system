@@ -404,6 +404,51 @@ const HAS_GENERAL_EMERGENCY: RoutingConditionV1 = {
     value,
   })),
 };
+const HAS_VASCULAR: RoutingConditionV1 = {
+  op: "includes",
+  field: "leadingSigns",
+  value: "mi_or_stroke_suspected",
+};
+const HAS_OTHER_KNOWN_CANCER_EMERGENCY: RoutingConditionV1 = all(
+  {
+    op: "includes",
+    field: "leadingSigns",
+    value: "other_known_cancer_emergency",
+  },
+  { op: "eq", field: "oncologyStatus", value: "confirmed_known" },
+);
+const HAS_GENERAL_ROUTE: RoutingConditionV1 = {
+  op: "any",
+  conditions: [HAS_GENERAL_EMERGENCY, HAS_OTHER_KNOWN_CANCER_EMERGENCY],
+};
+const HAS_PALLIATIVE_TRIGGER: RoutingConditionV1 = {
+  op: "any",
+  conditions: [
+    { op: "includes", field: "leadingSigns", value: "uncontrolled_cancer_pain" },
+    { op: "eq", field: "medicalTransportNeeded", value: true },
+    { op: "present", field: "palliativeFormat" },
+  ],
+};
+const NO_EMERGENCY_ROUTE: RoutingConditionV1 = {
+  op: "not",
+  condition: { op: "any", conditions: [HAS_VASCULAR, HAS_SURGICAL, HAS_GENERAL_ROUTE] },
+};
+const IS_PALLIATIVE_WITH_TRIGGER: RoutingConditionV1 = all(
+  NO_EMERGENCY_ROUTE,
+  { op: "eq", field: "palliativeProfileKnown", value: true },
+  HAS_PALLIATIVE_TRIGGER,
+);
+const IS_PLAN_ONCOLOGY: RoutingConditionV1 = all(
+  NO_EMERGENCY_ROUTE,
+  { op: "not", condition: IS_PALLIATIVE_WITH_TRIGGER },
+  { op: "eq", field: "oncologyStatus", value: "suspected_only" },
+  { op: "neq", field: "medicalTransportNeeded", value: true },
+);
+const IS_MEDICAL_TRANSPORT: RoutingConditionV1 = all(
+  NO_EMERGENCY_ROUTE,
+  { op: "not", condition: IS_PALLIATIVE_WITH_TRIGGER },
+  { op: "eq", field: "medicalTransportNeeded", value: true },
+);
 const HAS_OVERLAP_TERRITORY: RoutingConditionV1 = {
   op: "in",
   field: "territory",
@@ -657,11 +702,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
     {
       id: "vascular_cardiac",
       priority: 10,
-      when: {
-        op: "includes",
-        field: "leadingSigns",
-        value: "mi_or_stroke_suspected",
-      },
+      when: HAS_VASCULAR,
       result: {
         ...COMMON_RESULT,
         route: "vascular_cardiac",
@@ -700,6 +741,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "urgent_oncosurgery_known_overlap",
       priority: 20,
       when: all(
+        { op: "not", condition: HAS_VASCULAR },
         HAS_SURGICAL,
         { op: "eq", field: "oncologyStatus", value: "confirmed_known" },
         HAS_OVERLAP_TERRITORY,
@@ -710,6 +752,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "urgent_oncosurgery_known",
       priority: 21,
       when: all(
+        { op: "not", condition: HAS_VASCULAR },
         HAS_SURGICAL,
         { op: "eq", field: "oncologyStatus", value: "confirmed_known" },
         NO_OVERLAP_TERRITORY,
@@ -719,33 +762,31 @@ export const ONCOLOGY_RULE_SET_V1 = {
     {
       id: "urgent_surgical_unclear_overlap",
       priority: 30,
-      when: all(HAS_SURGICAL, HAS_OVERLAP_TERRITORY),
+      when: all(
+        { op: "not", condition: HAS_VASCULAR },
+        HAS_SURGICAL,
+        { op: "neq", field: "oncologyStatus", value: "confirmed_known" },
+        HAS_OVERLAP_TERRITORY,
+      ),
       result: urgentSurgicalResult(false, true),
     },
     {
       id: "urgent_surgical_unclear",
       priority: 31,
-      when: all(HAS_SURGICAL, NO_OVERLAP_TERRITORY),
+      when: all(
+        { op: "not", condition: HAS_VASCULAR },
+        HAS_SURGICAL,
+        { op: "neq", field: "oncologyStatus", value: "confirmed_known" },
+        NO_OVERLAP_TERRITORY,
+      ),
       result: urgentSurgicalResult(false, false),
     },
     {
       id: "urgent_general_overlap",
       priority: 40,
       when: all(
-        {
-          op: "any",
-          conditions: [
-            HAS_GENERAL_EMERGENCY,
-            all(
-              {
-                op: "includes",
-                field: "leadingSigns",
-                value: "other_known_cancer_emergency",
-              },
-              { op: "eq", field: "oncologyStatus", value: "confirmed_known" },
-            ),
-          ],
-        },
+        { op: "not", condition: { op: "any", conditions: [HAS_VASCULAR, HAS_SURGICAL] } },
+        HAS_GENERAL_ROUTE,
         HAS_OVERLAP_TERRITORY,
       ),
       result: urgentGeneralResult(true),
@@ -754,20 +795,8 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "urgent_general",
       priority: 41,
       when: all(
-        {
-          op: "any",
-          conditions: [
-            HAS_GENERAL_EMERGENCY,
-            all(
-              {
-                op: "includes",
-                field: "leadingSigns",
-                value: "other_known_cancer_emergency",
-              },
-              { op: "eq", field: "oncologyStatus", value: "confirmed_known" },
-            ),
-          ],
-        },
+        { op: "not", condition: { op: "any", conditions: [HAS_VASCULAR, HAS_SURGICAL] } },
+        HAS_GENERAL_ROUTE,
         NO_OVERLAP_TERRITORY,
       ),
       result: urgentGeneralResult(false),
@@ -775,29 +804,14 @@ export const ONCOLOGY_RULE_SET_V1 = {
     {
       id: "palliative_with_trigger",
       priority: 50,
-      when: all(
-        { op: "eq", field: "palliativeProfileKnown", value: true },
-        {
-          op: "any",
-          conditions: [
-            {
-              op: "includes",
-              field: "leadingSigns",
-              value: "uncontrolled_cancer_pain",
-            },
-            { op: "eq", field: "medicalTransportNeeded", value: true },
-            { op: "present", field: "palliativeFormat" },
-          ],
-        },
-      ),
+      when: IS_PALLIATIVE_WITH_TRIGGER,
       result: PALLIATIVE_RESULT,
     },
     {
       id: "plan_onco_referral_overlap",
       priority: 60,
       when: all(
-        { op: "eq", field: "oncologyStatus", value: "suspected_only" },
-        { op: "neq", field: "medicalTransportNeeded", value: true },
+        IS_PLAN_ONCOLOGY,
         HAS_OVERLAP_TERRITORY,
       ),
       result: planResult(true),
@@ -806,8 +820,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "plan_onco_referral",
       priority: 61,
       when: all(
-        { op: "eq", field: "oncologyStatus", value: "suspected_only" },
-        { op: "neq", field: "medicalTransportNeeded", value: true },
+        IS_PLAN_ONCOLOGY,
         NO_OVERLAP_TERRITORY,
       ),
       result: planResult(false),
@@ -816,7 +829,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "medical_transport_overlap",
       priority: 70,
       when: all(
-        { op: "eq", field: "medicalTransportNeeded", value: true },
+        IS_MEDICAL_TRANSPORT,
         HAS_OVERLAP_TERRITORY,
       ),
       result: medicalTransportResult(true),
@@ -825,7 +838,7 @@ export const ONCOLOGY_RULE_SET_V1 = {
       id: "medical_transport",
       priority: 71,
       when: all(
-        { op: "eq", field: "medicalTransportNeeded", value: true },
+        IS_MEDICAL_TRANSPORT,
         NO_OVERLAP_TERRITORY,
       ),
       result: medicalTransportResult(false),
@@ -833,7 +846,12 @@ export const ONCOLOGY_RULE_SET_V1 = {
     {
       id: "palliative_without_trigger",
       priority: 80,
-      when: { op: "eq", field: "palliativeProfileKnown", value: true },
+      when: all(
+        NO_EMERGENCY_ROUTE,
+        { op: "eq", field: "palliativeProfileKnown", value: true },
+        { op: "not", condition: HAS_PALLIATIVE_TRIGGER },
+        { op: "not", condition: IS_PLAN_ONCOLOGY },
+      ),
       result: PALLIATIVE_RESULT,
     },
     {
@@ -841,6 +859,13 @@ export const ONCOLOGY_RULE_SET_V1 = {
       priority: 90,
       when: all(
         { op: "eq", field: "always", value: true },
+        NO_EMERGENCY_ROUTE,
+        { op: "not", condition: { op: "any", conditions: [
+          IS_PALLIATIVE_WITH_TRIGGER,
+          IS_PLAN_ONCOLOGY,
+          IS_MEDICAL_TRANSPORT,
+          { op: "eq", field: "palliativeProfileKnown", value: true },
+        ] } },
         HAS_OVERLAP_TERRITORY,
       ),
       result: noHospitalizationResult(true),
@@ -848,7 +873,17 @@ export const ONCOLOGY_RULE_SET_V1 = {
     {
       id: "no_hospitalization",
       priority: 91,
-      when: { op: "eq", field: "always", value: true },
+      when: all(
+        { op: "eq", field: "always", value: true },
+        NO_EMERGENCY_ROUTE,
+        { op: "not", condition: { op: "any", conditions: [
+          IS_PALLIATIVE_WITH_TRIGGER,
+          IS_PLAN_ONCOLOGY,
+          IS_MEDICAL_TRANSPORT,
+          { op: "eq", field: "palliativeProfileKnown", value: true },
+        ] } },
+        NO_OVERLAP_TERRITORY,
+      ),
       result: noHospitalizationResult(false),
     },
   ],

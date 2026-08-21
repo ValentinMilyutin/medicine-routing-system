@@ -3,6 +3,7 @@ import DynamicRoutingQuestionnaire from "../DynamicRoutingQuestionnaire.js";
 import {
   analyzeRoutingRuleSetAgainstQuestionnaire,
   evaluateRoutingRuleSetV1,
+  prepareRoutingEvaluationState,
   unansweredRequiredRoutingQuestions,
   type RoutingConditionV1,
   type RoutingProfileContentDocument,
@@ -527,7 +528,10 @@ function ResultSummary(props: {
   const evaluation = useMemo(() => {
     if (props.missing.length > 0) return null;
     try {
-      return evaluateRoutingRuleSetV1(props.ruleSet, props.state);
+      return evaluateRoutingRuleSetV1(
+        props.ruleSet,
+        prepareRoutingEvaluationState(props.ruleSet.profileId, props.state),
+      );
     } catch (reason) {
       return {
         error:
@@ -639,7 +643,13 @@ export default function InfectiousQuestionnaireBuilder(props: {
 
   const missing = unansweredRequiredRoutingQuestions(questions, previewState);
   const analysis = useMemo(
-    () => analyzeRoutingRuleSetAgainstQuestionnaire(questions, props.ruleSet),
+    () => analyzeRoutingRuleSetAgainstQuestionnaire(
+      questions,
+      props.ruleSet,
+      props.ruleSet.profileId === "bsk" || props.ruleSet.profileId === "oncology" || props.ruleSet.profileId === "obgyn"
+        ? 2_000
+        : 20_000,
+    ),
     [props.ruleSet, questions],
   );
 

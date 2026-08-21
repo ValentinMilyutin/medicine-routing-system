@@ -8,7 +8,10 @@ import {
   ROAD_ACCIDENT_RULE_SET_V1,
   ROAD_ACCIDENT_TERRITORIES_V1,
 } from "./road-accident-rules-v1.js";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import {
+  evaluateRoutingRuleSetV1,
+  type RoutingRuleSetV1,
+} from "./rules-v1.js";
 
 export type AgeGroup = "child_0_15" | "age_16_17" | "adult_18_plus";
 export type LocationKind = "territory" | "m10" | "m11";
@@ -564,10 +567,14 @@ function routingResultFromRules(value: unknown): RoutingResult {
 export function evaluateRoutingRulesV1(
   state: FormState,
 ): RoutingResult | null {
-  const evaluation = evaluateRoutingRuleSetV1(
-    ROAD_ACCIDENT_RULE_SET_V1,
-    state,
-  );
+  return evaluateRoadAccidentRoutingRuleSet(ROAD_ACCIDENT_RULE_SET_V1, state);
+}
+
+export function evaluateRoadAccidentRoutingRuleSet(
+  ruleSet: RoutingRuleSetV1,
+  state: Record<string, unknown>,
+): RoutingResult | null {
+  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
   return evaluation ? routingResultFromRules(evaluation.result) : null;
 }
 

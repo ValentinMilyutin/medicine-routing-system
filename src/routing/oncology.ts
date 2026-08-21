@@ -9,6 +9,7 @@ import {
   ONCOLOGY_TERRITORY_OPTIONS_V1,
 } from "./oncology-rules-v1.js";
 import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import { prepareRoutingEvaluationState } from "./evaluation-state.js";
 
 /**
  * MVP Wizard: Маршрутизация СМП (онкология) по текущему местоположению пациента.
@@ -641,19 +642,17 @@ function routingResultFromRules(value: unknown): RoutingResult {
 }
 
 function normalizeRoutingState(state: FormState) {
-  const territoryKey = !state.territory
-    ? "__missing__"
-    : (TERRITORY_OPTIONS as readonly string[]).includes(state.territory)
-      ? state.territory
-      : "__unknown__";
-  return {
-    ...state,
-    territoryKey,
-    palliativeFormatKey: state.palliativeFormat ?? "__missing__",
-    medicalTransportNeededKey: state.medicalTransportNeeded ? "true" : "false",
-    docsAvailableKey: state.docsAvailable ? "true" : "false",
-    always: true,
-  };
+  return prepareRoutingEvaluationState("oncology", state);
+}
+
+export function evaluateOncologyRoutingRuleSet(
+  ruleSet: import("./rules-v1.js").RoutingRuleSetV1,
+  state: Readonly<Record<string, unknown>>,
+) {
+  return evaluateRoutingRuleSetV1(
+    ruleSet,
+    prepareRoutingEvaluationState("oncology", state),
+  );
 }
 
 export function evalRoutingRulesV1(state: FormState): RoutingResult {

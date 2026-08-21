@@ -2,18 +2,18 @@ import { lazy, Suspense, type ComponentType, useState } from "react";
 import ProfileSelect from "./ProfileSelect";
 import type { RoutingProfileId } from "./routing";
 
-import OncologySMPRoutingMVP from "./OncologySMPRoutingMVP";
-import RoutingWizard from "./RoutingWizard";
-import BSKSMPRoutingWizard from "./BSKSMPRoutingWizard";
-import DermatovenerologySMPRoutingWizard from "./DermatovenerologySMPRoutingWizard";
+import OncologyDynamicRoutingWizard from "./OncologyDynamicRoutingWizard";
+import ObstetricsDynamicRoutingWizard from "./ObstetricsDynamicRoutingWizard";
+import BSKSMPRoutingWizard from "./BSKDynamicRoutingWizard";
+import DermatovenerologySMPRoutingWizard from "./DermatologyDynamicRoutingWizard";
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
-import RoadAccidentSMPRoutingWizard from "./RoadAccidentSMPRoutingWizard";
+import RoadAccidentSMPRoutingWizard from "./RoadAccidentDynamicRoutingWizard";
 
 const AdminApp = lazy(() => import("./admin/AdminApp"));
 
 const PROFILE_COMPONENTS: Record<RoutingProfileId, ComponentType> = {
-  obgyn: RoutingWizard,
-  oncology: OncologySMPRoutingMVP,
+  obgyn: ObstetricsDynamicRoutingWizard,
+  oncology: OncologyDynamicRoutingWizard,
   bsk: BSKSMPRoutingWizard,
   dermatology: DermatovenerologySMPRoutingWizard,
   infectious: InfectiousDiseasesSMPRoutingWizard,

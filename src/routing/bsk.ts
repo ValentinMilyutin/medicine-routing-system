@@ -5,7 +5,7 @@ import {
   BSK_RULE_SET_V1,
   BSK_TERRITORIES_V1,
 } from "./bsk-rules-v1.js";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import { evaluateRoutingRuleSetV1, type RoutingRuleSetV1 } from "./rules-v1.js";
 
 export type Branch = "stroke" | "acs" | "other_cvd" | "kink";
 
@@ -120,6 +120,7 @@ const LEGACY_FACILITIES: Record<FacilityId, Facility> = {
     id: "nearest_reanimation",
     name: "Ближайшая медицинская организация с реанимационным отделением",
     role: "Маршрут при нестабильном пациенте",
+    address: "Организацию и адрес определяет диспетчер после подтверждения доступной ОАРИТ",
   },
 };
 
@@ -507,7 +508,14 @@ function routingResultFromRules(value: unknown): RoutingResult {
 export function evaluateRoutingRulesV1(
   state: BSKFormState,
 ): RoutingResult | null {
-  const evaluation = evaluateRoutingRuleSetV1(BSK_RULE_SET_V1, state);
+  return evaluateBskRoutingRuleSet(BSK_RULE_SET_V1, state);
+}
+
+export function evaluateBskRoutingRuleSet(
+  ruleSet: RoutingRuleSetV1,
+  state: Record<string, unknown>,
+): RoutingResult | null {
+  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
   return evaluation ? routingResultFromRules(evaluation.result) : null;
 }
 

@@ -36,7 +36,7 @@ describe("версионируемые документы маршрутизац
       0,
     );
 
-    expect(branchCount).toBe(42);
+    expect(branchCount).toBe(44);
   });
 
   it("сериализуются в JSON и восстанавливаются без функций", () => {

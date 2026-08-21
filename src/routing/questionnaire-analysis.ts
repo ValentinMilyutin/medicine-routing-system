@@ -9,6 +9,7 @@ import {
   matchesRoutingConditionV1,
   type RoutingRuleSetV1,
 } from "./rules-v1.js";
+import { prepareRoutingEvaluationState } from "./evaluation-state.js";
 
 export type RoutingLogicAnalysisIssue = {
   kind:
@@ -46,11 +47,11 @@ function candidateAnswers(
     const selectable = options
       .filter((option) => !option.exclusive)
       .map((option) => option.value);
-    const pairs = selectable.flatMap((left, leftIndex) =>
-      selectable
-        .slice(leftIndex + 1)
-        .map((right) => [left, right]),
-    );
+    const pairs = selectable.length <= 8
+      ? selectable.flatMap((left, leftIndex) =>
+          selectable.slice(leftIndex + 1).map((right) => [left, right]),
+        )
+      : selectable.slice(1).map((right) => [selectable[0], right]);
     const answers: unknown[] = [...singles, ...pairs];
     if (selectable.length > 2) answers.push(selectable);
     if (question.requirement === "optional") answers.unshift([]);
@@ -116,7 +117,10 @@ export function analyzeRoutingRuleSetAgainstQuestionnaire(
   ruleSet: RoutingRuleSetV1,
   maximum = 20_000,
 ): RoutingLogicAnalysis {
-  const matrix = buildRoutingQuestionnaireScenarioMatrix(questions, maximum);
+  const effectiveMaximum = (ruleSet.profileId === "oncology" || ruleSet.profileId === "obgyn") && maximum === 20_000
+    ? 50_000
+    : maximum;
+  const matrix = buildRoutingQuestionnaireScenarioMatrix(questions, effectiveMaximum);
   const sortedRules = [...ruleSet.rules].sort(
     (left, right) => left.priority - right.priority,
   );
@@ -132,8 +136,9 @@ export function analyzeRoutingRuleSetAgainstQuestionnaire(
   const renderErrors = new Set<string>();
 
   for (const state of matrix.states) {
+    const evaluationState = prepareRoutingEvaluationState(ruleSet.profileId, state);
     const matching = sortedRules.filter((rule) =>
-      matchesRoutingConditionV1(rule.when, state),
+      matchesRoutingConditionV1(rule.when, evaluationState),
     );
     if (matching.length === 0) gapCount += 1;
     if (matching.length > 1) overlapScenarioCount += 1;
@@ -144,7 +149,7 @@ export function analyzeRoutingRuleSetAgainstQuestionnaire(
     if (winner) {
       winnerCounts[winner.id] = (winnerCounts[winner.id] ?? 0) + 1;
       try {
-        evaluateRoutingRuleSetV1(ruleSet, state);
+        evaluateRoutingRuleSetV1(ruleSet, evaluationState);
       } catch (reason) {
         renderErrorCount += 1;
         renderErrors.add(

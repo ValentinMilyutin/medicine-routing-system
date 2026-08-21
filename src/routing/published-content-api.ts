@@ -6,6 +6,7 @@ import {
   assertRoutingRuleSetV1,
   type RoutingRuleSetV1,
 } from "./rules-v1.js";
+import type { RoutingProfileId } from "./types.js";
 
 export type PublishedRoutingVersion = {
   id: string;
@@ -19,7 +20,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parsePublishedVersion(value: unknown): PublishedRoutingVersion | null {
+function parsePublishedVersion(
+  value: unknown,
+  profileId: RoutingProfileId,
+): PublishedRoutingVersion | null {
   if (value === null) return null;
   if (!isRecord(value)) {
     throw new Error("Сервер вернул некорректную опубликованную версию.");
@@ -28,8 +32,8 @@ function parsePublishedVersion(value: unknown): PublishedRoutingVersion | null {
   assertRoutingRuleSetV1(value.ruleSet);
   if (
     value.document.status !== "approved" ||
-    value.document.profileId !== "infectious" ||
-    value.ruleSet.profileId !== "infectious" ||
+    value.document.profileId !== profileId ||
+    value.ruleSet.profileId !== profileId ||
     value.document.execution.kind !== "rules_v1" ||
     value.document.execution.ruleSetId !== value.ruleSet.id
   ) {
@@ -48,10 +52,20 @@ function parsePublishedVersion(value: unknown): PublishedRoutingVersion | null {
 export async function loadPublishedInfectiousRoutingVersion(
   signal?: AbortSignal,
 ): Promise<PublishedRoutingVersion | null> {
-  const response = await fetch("/api/routing/content?profileId=infectious", {
+  return loadPublishedRoutingVersion("infectious", signal);
+}
+
+export async function loadPublishedRoutingVersion(
+  profileId: RoutingProfileId,
+  signal?: AbortSignal,
+): Promise<PublishedRoutingVersion | null> {
+  const response = await fetch(
+    `/api/routing/content?profileId=${encodeURIComponent(profileId)}`,
+    {
     headers: { Accept: "application/json" },
     signal,
-  });
+    },
+  );
   if (!response.ok) {
     throw new Error("Не удалось загрузить опубликованную версию.");
   }
@@ -59,5 +73,5 @@ export async function loadPublishedInfectiousRoutingVersion(
   if (!isRecord(body) || !("version" in body)) {
     throw new Error("Сервер вернул некорректный ответ.");
   }
-  return parsePublishedVersion(body.version);
+  return parsePublishedVersion(body.version, profileId);
 }

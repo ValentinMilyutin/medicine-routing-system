@@ -1,4 +1,7 @@
-import { infectiousRoutingContent } from "./content-manifests.js";
+import {
+  infectiousRoutingContent,
+  routingContentDocuments,
+} from "./content-manifests.js";
 import type { RoutingProfileContentDocument } from "./content-schema.js";
 import type { RoutingRuleSetV1 } from "./rules-v1.js";
 
@@ -36,6 +39,37 @@ export function hydrateLegacyInfectiousQuestions(
             .find((value): value is string => typeof value === "string");
           return label ? { ...option, label } : option;
         }),
+      };
+    }),
+  };
+}
+
+export function hydrateLegacyRoutingQuestions(
+  document: RoutingProfileContentDocument,
+  ruleSet: RoutingRuleSetV1,
+): RoutingProfileContentDocument {
+  if (document.profileId === "infectious") {
+    return hydrateLegacyInfectiousQuestions(document, ruleSet);
+  }
+  const baseline = routingContentDocuments.find(
+    (candidate) => candidate.profileId === document.profileId,
+  );
+  if (!baseline) return document;
+  const defaults = new Map(
+    baseline.questions.map((question) => [question.id, question]),
+  );
+  return {
+    ...document,
+    questions: document.questions.map((question) => {
+      const fallback = defaults.get(question.id);
+      if (!fallback) return question;
+      return {
+        ...fallback,
+        ...question,
+        helpText: question.helpText ?? fallback.helpText,
+        placeholder: question.placeholder ?? fallback.placeholder,
+        visibility: question.visibility ?? fallback.visibility,
+        options: question.options ?? fallback.options,
       };
     }),
   };

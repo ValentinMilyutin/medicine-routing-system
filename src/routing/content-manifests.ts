@@ -11,6 +11,31 @@ import {
   INFECTIOUS_RESPIRATORY_ADMISSION_LABELS_V1,
   INFECTIOUS_TERRITORIES_V1,
 } from "./infectious-rules-v1.js";
+import {
+  ROAD_ACCIDENT_AGE_LABELS_V1,
+  ROAD_ACCIDENT_INJURY_LABELS_V1,
+  ROAD_ACCIDENT_M11_RESPONDER_LABELS_V1,
+  ROAD_ACCIDENT_M11_ZONES_V1,
+  ROAD_ACCIDENT_TERRITORIES_V1,
+} from "./road-accident-rules-v1.js";
+import {
+  DERMATOLOGY_CONDITION_LABELS,
+  DERMATOLOGY_TERRITORIES,
+} from "./dermatology-rules-v1.js";
+import {
+  BSK_BRANCH_LABELS_V1,
+  BSK_TERRITORIES_V1,
+} from "./bsk-rules-v1.js";
+import {
+  ONCOLOGY_SIGN_LABELS_V1,
+  ONCOLOGY_TERRITORY_OPTIONS_V1,
+} from "./oncology-rules-v1.js";
+import {
+  OBSTETRICS_TERRITORIES_BOROVICHI_V1,
+  OBSTETRICS_TERRITORIES_NOVGOROD_V1,
+  OBSTETRICS_TERRITORIES_STARAYA_RUSSA_V1,
+  OBSTETRICS_TERRITORIES_VALDAI_V1,
+} from "./obstetrics-rules-v1.js";
 
 const UPDATED_AT = "2026-08-20T19:00:00+03:00";
 
@@ -28,6 +53,16 @@ function question(
   > = {},
 ): RoutingQuestionDescriptor {
   return { id, label, kind, requirement, optionCatalog, ...extra };
+}
+
+function booleanOptions(
+  yes = "Да",
+  no = "Нет",
+): RoutingQuestionDescriptor["options"] {
+  return [
+    { value: true, label: yes },
+    { value: false, label: no },
+  ];
 }
 
 function branch(
@@ -95,24 +130,106 @@ export const obstetricsRoutingContent = {
   changeSummary: "Первичная фиксация вопросов и приоритетов действующего MVP.",
   officialSourcesOnly: true,
   questions: [
-    question("scenario", "Клинический сценарий", "single_choice", "always", "obstetric-scenarios"),
-    question("territory", "Территория вызова", "single_choice", "conditional", "novgorod-territories"),
-    question("critical", "Критическое состояние", "boolean", "conditional"),
-    question("criticalKind", "Вид критического состояния", "single_choice", "conditional", "obstetric-critical-kinds"),
-    question("criticalRoute", "Профиль критического маршрута", "single_choice", "conditional", "obstetric-critical-routes"),
-    question("infectionType", "Инфекционный синдром", "single_choice", "conditional", "obstetric-infections"),
-    question("infectionSevere", "Тяжёлое течение инфекции", "boolean", "conditional"),
-    question("infectionOver7Days", "Длительность инфекции более 7 дней", "boolean", "conditional"),
-    question("trauma", "Травма", "boolean", "conditional"),
-    question("traumaSevere", "Тяжёлая травма", "boolean", "conditional"),
-    question("surgery", "Острая хирургическая патология", "boolean", "conditional"),
-    question("surgeryLifeThreat", "Жизнеугрожающая хирургическая патология", "boolean", "conditional"),
-    question("surgeryProfile", "Хирургический профиль", "single_choice", "conditional", "surgery-profiles"),
-    question("extragenitalInpatient", "Тяжёлая экстрагенитальная патология", "boolean", "conditional"),
-    question("pretermLabor", "Преждевременные роды", "boolean", "conditional"),
-    question("canDeliverToNokpc", "Возможна доставка в НОКПЦ", "boolean", "conditional"),
-    question("riskDelivery", "Группа риска родов", "single_choice", "conditional", "delivery-risk"),
-    question("postpartumIssue", "Послеродовое осложнение", "single_choice", "conditional", "postpartum-issues"),
+    question("scenario", "Клинический сценарий", "single_choice", "always", "obstetric-scenarios", { options: [
+      { value: "gyne_lt37", label: "Гинекология / беременность менее 37 недель" },
+      { value: "obstetrics_ge37", label: "Акушерство: 37 недель и более / роды" },
+      { value: "postpartum_le42", label: "Послеродовый период до 42 дней" },
+    ] }),
+    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories", {
+      options: [...new Set([
+        ...OBSTETRICS_TERRITORIES_NOVGOROD_V1,
+        ...OBSTETRICS_TERRITORIES_BOROVICHI_V1,
+        ...OBSTETRICS_TERRITORIES_STARAYA_RUSSA_V1,
+        ...OBSTETRICS_TERRITORIES_VALDAI_V1,
+        "Мошенской район",
+        "Пестово",
+      ])].map((value) => ({ value, label: value })),
+    }),
+    question("critical", "Есть критическое состояние или угроза жизни", "boolean", "always", undefined, { options: booleanOptions() }),
+    question("criticalKind", "Вид критического состояния", "single_choice", "optional", "obstetric-critical-kinds", {
+      visibility: { op: "eq", field: "critical", value: true },
+      options: [
+        { value: "bleeding", label: "Кровотечение" },
+        { value: "preeclampsia_eclampsia", label: "Преэклампсия / эклампсия / судороги" },
+        { value: "sepsis_shock", label: "Сепсис / шок" },
+        { value: "resp_failure", label: "Дыхательная недостаточность" },
+        { value: "teo_cardiac", label: "ТЭО / кардиальная декомпенсация" },
+        { value: "other", label: "Другое критическое состояние" },
+      ],
+    }),
+    question("criticalRoute", "Профиль критического маршрута", "single_choice", "conditional", "obstetric-critical-routes", {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "critical", value: true },
+        { op: "in", field: "scenario", values: ["obstetrics_ge37", "postpartum_le42"] },
+      ] },
+      options: [
+        { value: "kas_arkc", label: "Критическое акушерское состояние → НОКПЦ / АРКЦ" },
+        { value: "profile_nokb", label: "Экстрагенитальная или профильная критика → НОКБ" },
+      ],
+    }),
+    question("infectionType", "Инфекционный синдром", "single_choice", "always", "obstetric-infections", { options: [
+      { value: "none", label: "Инфекционного синдрома нет", exclusive: true },
+      { value: "arvi_pneumo", label: "ОРВИ / пневмония" },
+      { value: "flu_covid", label: "Грипп / COVID-19" },
+    ] }),
+    question("infectionSevere", "Тяжёлое течение ОРВИ / пневмонии", "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "infectionType", value: "arvi_pneumo" }, options: booleanOptions(),
+    }),
+    question("infectionOver7Days", "Болезнь длится более 7 дней", "boolean", "conditional", undefined, {
+      visibility: { op: "all", conditions: [{ op: "eq", field: "infectionType", value: "arvi_pneumo" }, { op: "eq", field: "infectionSevere", value: true }] }, options: booleanOptions(),
+    }),
+    question("trauma", "Есть ДТП или травма", "boolean", "always", undefined, { options: booleanOptions() }),
+    question("traumaSevere", "Тяжёлая травма или политравма", "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "trauma", value: true }, options: booleanOptions(),
+    }),
+    question("surgery", "Есть острая экстрагенитальная хирургическая патология", "boolean", "always", undefined, { options: booleanOptions() }),
+    question("surgeryLifeThreat", "Хирургическая патология угрожает жизни", "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "surgery", value: true }, options: booleanOptions(),
+    }),
+    question("surgeryProfile", "Хирургический профиль", "single_choice", "conditional", "surgery-profiles", {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "surgery", value: true }, { op: "eq", field: "surgeryLifeThreat", value: true }, { op: "eq", field: "scenario", value: "gyne_lt37" },
+      ] },
+      options: [
+        { value: "city", label: "Абдоминальная / гнойная хирургия / травма → ЦГКБ" },
+        { value: "regional", label: "Кардио / нейро / высокоспециализированная помощь → НОКБ" },
+      ],
+    }),
+    question("extragenitalInpatient", "Тяжёлая экстрагенитальная патология требует профильного стационара", "boolean", "always", undefined, { options: booleanOptions() }),
+    question("pretermLabor", "Есть подозрение на преждевременные роды", "boolean", "conditional", undefined, {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "scenario", value: "obstetrics_ge37" }, { op: "eq", field: "infectionType", value: "none" },
+        { op: "eq", field: "trauma", value: false }, { op: "eq", field: "surgery", value: false },
+        { op: "eq", field: "extragenitalInpatient", value: false }, { op: "eq", field: "critical", value: false },
+      ] }, options: booleanOptions(),
+    }),
+    question("canDeliverToNokpc", "Возможна доставка в НОКПЦ", "boolean", "conditional", undefined, {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "scenario", value: "obstetrics_ge37" }, { op: "eq", field: "infectionType", value: "none" },
+        { op: "eq", field: "trauma", value: false }, { op: "eq", field: "surgery", value: false }, { op: "eq", field: "extragenitalInpatient", value: false },
+        { op: "eq", field: "critical", value: false }, { op: "eq", field: "pretermLabor", value: true },
+      ] }, options: booleanOptions(),
+    }),
+    question("riskDelivery", "Группа риска родов", "single_choice", "conditional", "delivery-risk", {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "scenario", value: "obstetrics_ge37" }, { op: "eq", field: "infectionType", value: "none" },
+        { op: "eq", field: "trauma", value: false }, { op: "eq", field: "surgery", value: false }, { op: "eq", field: "extragenitalInpatient", value: false },
+        { op: "eq", field: "critical", value: false }, { op: "eq", field: "pretermLabor", value: false },
+      ] },
+      options: [{ value: "low", label: "Низкий риск" }, { value: "mid", label: "Средний риск" }, { value: "high", label: "Высокий риск" }],
+    }),
+    question("postpartumIssue", "Послеродовое осложнение", "single_choice", "conditional", "postpartum-issues", {
+      visibility: { op: "all", conditions: [
+        { op: "eq", field: "scenario", value: "postpartum_le42" }, { op: "eq", field: "infectionType", value: "none" },
+        { op: "eq", field: "trauma", value: false }, { op: "eq", field: "surgery", value: false }, { op: "eq", field: "extragenitalInpatient", value: false },
+        { op: "eq", field: "critical", value: false },
+      ] },
+      options: [
+        { value: "bleeding", label: "Кровотечение" }, { value: "sepsis_fever", label: "Температура / подозрение на сепсис" },
+        { value: "seizures_hypertensive", label: "Судороги / гипертензивные осложнения" }, { value: "resp_failure", label: "Дыхательная недостаточность" },
+        { value: "teo_cardiac", label: "ТЭО / кардиальные осложнения" }, { value: "postop_pain_other", label: "Другое / послеоперационное осложнение / боль" },
+      ],
+    }),
   ],
   branches: [
     branch("infection", "Инфекционная ветка", 10, "Выбран инфекционный синдром.", "Инфекционный стационар или профильный маршрут по тяжести.", [OBSTETRICS_SOURCE.id], ["OBS-001", "OBS-002"]),
@@ -148,31 +265,79 @@ export const bskRoutingContent = {
   changeSummary: "Фиксация веток ОНМК, ОКС, других ССЗ и КИНК.",
   officialSourcesOnly: true,
   questions: [
-    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories"),
-    question("branch", "Ведущий сердечно-сосудистый синдром", "single_choice", "always", "bsk-branches"),
-    question("unstableVitals", "Нарушение витальных функций", "boolean", "always"),
-    question("fastFace", "Асимметрия лица", "boolean", "conditional"),
-    question("fastArm", "Слабость руки", "boolean", "conditional"),
-    question("fastSpeech", "Нарушение речи", "boolean", "conditional"),
-    question("strokeOnset", "Время начала неврологических симптомов", "single_choice", "conditional", "stroke-onset"),
-    question("onsetWithin5h", "Доставка возможна в пределах пяти часов", "boolean", "conditional"),
-    question("armMovement", "Удержание руки", "single_choice", "conditional", "arm-movement"),
-    question("gripStrength", "Сила сжатия кисти", "single_choice", "conditional", "grip-strength"),
-    question("chestPainOrEquivalent", "Боль в груди или эквивалент", "boolean", "conditional"),
-    question("ecgDone", "ЭКГ выполнена", "boolean", "conditional"),
-    question("stElevation", "Подъём сегмента ST", "boolean", "conditional"),
-    question("pciWithin120", "ЧКВ доступно в пределах 120 минут", "boolean", "conditional"),
-    question("tltContraindications", "Противопоказания к ТЛТ", "boolean", "conditional"),
-    question("nsteHighRisk", "Высокий риск ОКС без подъёма ST", "boolean", "conditional"),
-    question("rhythmDisorder", "Нарушение ритма", "boolean", "conditional"),
-    question("conductionDisorder", "Нарушение проводимости", "boolean", "conditional"),
-    question("suspectedPE", "Подозрение на ТЭЛА", "boolean", "conditional"),
-    question("acuteHeartFailure", "Острая сердечная недостаточность", "boolean", "conditional"),
-    question("restPain", "Боль в покое", "boolean", "conditional"),
-    question("legDownAtNight", "Опускание ноги ночью", "boolean", "conditional"),
-    question("trophicChanges", "Трофические изменения", "boolean", "conditional"),
-    question("necrosisGangrene", "Некроз или гангрена", "boolean", "conditional"),
-    question("infectionSigns", "Признаки инфекции конечности", "boolean", "conditional"),
+    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories", {
+      options: BSK_TERRITORIES_V1.map(({ name }) => ({ value: name, label: name })),
+    }),
+    question("branch", "Ведущий сердечно-сосудистый синдром", "single_choice", "always", "bsk-branches", {
+      options: Object.entries(BSK_BRANCH_LABELS_V1).map(([value, label]) => ({ value, label })),
+    }),
+    question("unstableVitals", "Есть выраженные нарушения витальных функций", "boolean", "always", undefined, {
+      helpText: "Шок, критическая гипотензия, тяжёлая дыхательная недостаточность, угроза остановки кровообращения или необходимость реанимации.",
+      options: booleanOptions(),
+    }),
+    ...(["fastFace", "fastArm", "fastSpeech"] as const).map((id) => question(
+      id,
+      id === "fastFace" ? "Есть асимметрия лица" : id === "fastArm" ? "Есть слабость или онемение одной руки" : "Есть нарушение речи",
+      "boolean",
+      "conditional",
+      undefined,
+      { visibility: { op: "eq", field: "branch", value: "stroke" }, options: booleanOptions() },
+    )),
+    question("strokeOnset", "Когда появились неврологические симптомы?", "single_choice", "conditional", "stroke-onset", {
+      visibility: { op: "eq", field: "branch", value: "stroke" },
+      options: [
+        { value: "known", label: "Точное время начала известно" },
+        { value: "woke_with_symptoms", label: "Пациент проснулся уже с симптомами" },
+        { value: "unknown", label: "Время начала неизвестно" },
+      ],
+    }),
+    question("onsetWithin5h", "Доставка возможна не позднее пяти часов от начала симптомов", "boolean", "conditional", undefined, {
+      visibility: { op: "all", conditions: [{ op: "eq", field: "branch", value: "stroke" }, { op: "eq", field: "strokeOnset", value: "known" }] },
+      options: booleanOptions(),
+    }),
+    question("armMovement", "Как пациент удерживает вытянутую руку?", "single_choice", "conditional", "arm-movement", {
+      visibility: { op: "eq", field: "branch", value: "stroke" },
+      options: [
+        { value: "holds", label: "Удерживает руку" },
+        { value: "drifts", label: "Рука постепенно опускается" },
+        { value: "falls", label: "Рука быстро падает или не удерживается" },
+      ],
+    }),
+    question("gripStrength", "Сила сжатия кисти", "single_choice", "conditional", "grip-strength", {
+      visibility: { op: "eq", field: "branch", value: "stroke" },
+      options: [
+        { value: "normal", label: "Сила сохранена" },
+        { value: "weak", label: "Сила снижена" },
+        { value: "absent", label: "Сжатие кисти отсутствует" },
+      ],
+    }),
+    ...([
+      ["chestPainOrEquivalent", "Боль в грудной клетке или эквивалент ОКС"],
+      ["ecgDone", "ЭКГ 12 отведений выполнена"],
+      ["stElevation", "Есть подъём ST / новая БЛНПГ / признаки заднего ИМ"],
+      ["pciWithin120", "Доставка на ЧКВ возможна в пределах 120 минут"],
+      ["tltContraindications", "Есть противопоказания к ТЛТ"],
+      ["nsteHighRisk", "ОКС без подъёма ST высокого или очень высокого риска"],
+    ] as const).map(([id, label]) => question(id, label, "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "branch", value: "acs" }, options: booleanOptions(),
+    })),
+    ...([
+      ["rhythmDisorder", "Нарушение ритма"],
+      ["conductionDisorder", "Нарушение проводимости"],
+      ["suspectedPE", "Подозрение на ТЭЛА"],
+      ["acuteHeartFailure", "Острая сердечная недостаточность"],
+    ] as const).map(([id, label]) => question(id, label, "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "branch", value: "other_cvd" }, options: booleanOptions(),
+    })),
+    ...([
+      ["restPain", "Боль в нижней конечности в покое"],
+      ["legDownAtNight", "Пациент опускает ногу ночью для уменьшения боли"],
+      ["trophicChanges", "Есть трофические изменения или язвы"],
+      ["necrosisGangrene", "Некроз или гангрена"],
+      ["infectionSigns", "Инфекционно-воспалительные изменения"],
+    ] as const).map(([id, label]) => question(id, label, "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "branch", value: "kink" }, options: booleanOptions(),
+    })),
   ],
   branches: [
     branch("unstable", "Нестабильный пациент", 10, "Нарушены витальные функции.", "Ближайшая согласованная ОАРИТ, затем профильная маршрутизация.", [BSK_SOURCE.id], ["BSK-001"]),
@@ -208,13 +373,40 @@ export const oncologyRoutingContent = {
   changeSummary: "Фиксация восьми конечных категорий онкологического профиля.",
   officialSourcesOnly: true,
   questions: [
-    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories"),
-    question("oncologyStatus", "Онкологический статус", "single_choice", "always", "oncology-status"),
-    question("leadingSigns", "Ведущие синдромы", "multiple_choice", "always", "oncology-leading-signs"),
-    question("medicalTransportNeeded", "Требуется медицинская перевозка", "boolean", "conditional"),
-    question("palliativeProfileKnown", "Известен паллиативный профиль", "boolean", "conditional"),
-    question("palliativeFormat", "Формат паллиативной помощи", "single_choice", "conditional", "palliative-format"),
-    question("docsAvailable", "Медицинские документы доступны", "boolean", "optional"),
+    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories", {
+      placeholder: "Выберите муниципальный район или город",
+      options: ONCOLOGY_TERRITORY_OPTIONS_V1.map((value) => ({ value, label: value })),
+    }),
+    question("oncologyStatus", "Онкологический статус", "single_choice", "always", "oncology-status", {
+      options: [
+        { value: "confirmed_known", label: "Установленное злокачественное новообразование" },
+        { value: "suspected_only", label: "Только подозрение на злокачественное новообразование" },
+        { value: "unknown", label: "Статус неизвестен / данных недостаточно" },
+      ],
+    }),
+    question("leadingSigns", "Ведущие синдромы и признаки", "multiple_choice", "optional", "oncology-leading-signs", {
+      helpText: "Отметьте все признаки, которые доступны оценке бригады СМП. Если признаков нет, оставьте список пустым.",
+      options: Object.entries(ONCOLOGY_SIGN_LABELS_V1).map(([value, label]) => ({ value, label })),
+    }),
+    question("medicalTransportNeeded", "Требуется медицинская перевозка", "boolean", "optional", undefined, {
+      helpText: "Пациент стабилен, но самостоятельно не может добраться до медицинской организации.",
+      options: booleanOptions(),
+    }),
+    question("palliativeProfileKnown", "Известен паллиативный профиль", "boolean", "optional", undefined, {
+      options: booleanOptions(),
+    }),
+    question("palliativeFormat", "Формат паллиативной помощи", "single_choice", "optional", "palliative-format", {
+      visibility: { op: "eq", field: "palliativeProfileKnown", value: true },
+      options: [
+        { value: "outpatient", label: "Амбулаторно / выездная паллиативная помощь" },
+        { value: "inpatient", label: "Паллиативный стационар" },
+        { value: "nursing_care", label: "Койки сестринского ухода" },
+      ],
+    }),
+    question("docsAvailable", "Медицинские документы паллиативного профиля доступны", "boolean", "optional", undefined, {
+      visibility: { op: "eq", field: "palliativeProfileKnown", value: true },
+      options: booleanOptions(),
+    }),
   ],
   branches: [
     branch("vascular_cardiac", "Инфаркт или ОНМК", 10, "Есть признаки инфаркта миокарда или ОНМК.", "Профильный сосудистый или кардиологический стационар.", [ONCOLOGY_SOURCE.id], ["ONC-001"]),
@@ -259,9 +451,19 @@ export const dermatologyRoutingContent = {
   changeSummary: "Фиксация экстренной, стационарной и амбулаторной веток.",
   officialSourcesOnly: true,
   questions: [
-    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories"),
-    question("condition", "Опасное состояние", "single_choice", "always", "dermatology-emergencies"),
-    question("inpatientCare", "Показана стационарная помощь", "boolean", "conditional"),
+    question("territory", "Территория вызова", "single_choice", "always", "novgorod-territories", {
+      options: DERMATOLOGY_TERRITORIES.map(({ name }) => ({ value: name, label: name })),
+    }),
+    question("condition", "Опасное состояние", "single_choice", "always", "dermatology-emergencies", {
+      options: Object.entries(DERMATOLOGY_CONDITION_LABELS).map(([value, label]) => ({ value, label })),
+    }),
+    question("inpatientCare", "Показана стационарная помощь", "boolean", "conditional", undefined, {
+      visibility: { op: "eq", field: "condition", value: "none" },
+      options: [
+        { value: true, label: "Да, требуется профильный стационар" },
+        { value: false, label: "Нет, возможен амбулаторный маршрут" },
+      ],
+    }),
   ],
   branches: [
     branch("emergency_icu", "Жизнеугрожающее состояние", 10, "Выбрано одно из четырёх опасных состояний.", "Ближайшая согласованная ОАРИТ или ПИТ; после стабилизации — НОКВД.", [DERM_REGIONAL.id, DERM_FEDERAL.id, EMERGENCY_FEDERAL.id], ["DERM-001", "DERM-002"]),
@@ -446,22 +648,62 @@ export const roadAccidentRoutingContent = {
   changeSummary: "Фиксация схем М-10, М-11 и муниципальных территорий.",
   officialSourcesOnly: true,
   questions: [
-    question("locationKind", "Место ДТП", "single_choice", "always", "road-location-kind"),
-    question("territory", "Муниципальная территория", "single_choice", "conditional", "novgorod-territories"),
-    question("m10Zone", "Зона трассы М-10", "single_choice", "conditional", "m10-zones"),
-    question("m11Responder", "Подразделение, обслуживающее М-11", "single_choice", "conditional", "m11-responders"),
-    question("m11Zone", "Километровая зона М-11", "single_choice", "conditional", "m11-zones"),
-    question("ageGroup", "Возрастная группа", "single_choice", "always", "road-age-groups"),
-    question("injuryCriterion", "Критерий травмы", "single_choice", "always", "road-injury-criteria"),
+    question("locationKind", "Место ДТП", "single_choice", "always", "road-location-kind", {
+      options: [
+        { value: "territory", label: "Муниципальная территория или другая дорога" },
+        { value: "m10", label: "Федеральная дорога М-10 «Россия»" },
+        { value: "m11", label: "Федеральная дорога М-11 «Нева»" },
+      ],
+    }),
+    question("territory", "Муниципальная территория", "single_choice", "conditional", "novgorod-territories", {
+      visibility: { op: "eq", field: "locationKind", value: "territory" },
+      options: ROAD_ACCIDENT_TERRITORIES_V1.map(({ name }) => ({ value: name, label: name })),
+    }),
+    question("m10Zone", "Зона трассы М-10", "single_choice", "conditional", "m10-zones", {
+      visibility: { op: "eq", field: "locationKind", value: "m10" },
+      options: [
+        { value: "valdai_kresttsy", label: "Валдайский район и Крестецкий район до н. п. Зайцево" },
+        { value: "zaytsevo_novgorod_chudovo", label: "От н. п. Зайцево через Новгородский и Чудовский районы" },
+      ],
+    }),
+    question("m11Responder", "Подразделение, обслуживающее М-11", "single_choice", "conditional", "m11-responders", {
+      visibility: { op: "eq", field: "locationKind", value: "m11" },
+      options: Object.entries(ROAD_ACCIDENT_M11_RESPONDER_LABELS_V1).map(([value, label]) => ({ value, label })),
+    }),
+    question("m11Zone", "Километровая зона М-11", "single_choice", "conditional", "m11-zones", {
+      visibility: {
+        op: "all",
+        conditions: [
+          { op: "eq", field: "locationKind", value: "m11" },
+          { op: "present", field: "m11Responder" },
+        ],
+      },
+      options: Object.entries(ROAD_ACCIDENT_M11_ZONES_V1).flatMap(([responder, zones]) =>
+        zones.map((zone) => ({
+          value: zone.value,
+          label: zone.label,
+          visibility: { op: "eq" as const, field: "m11Responder", value: responder },
+        })),
+      ),
+    }),
+    question("ageGroup", "Возрастная группа", "single_choice", "always", "road-age-groups", {
+      options: Object.entries(ROAD_ACCIDENT_AGE_LABELS_V1).map(([value, label]) => ({ value, label })),
+    }),
+    question("injuryCriterion", "Ведущий критерий маршрутизации", "single_choice", "always", "road-injury-criteria", {
+      helpText: "Выберите наиболее тяжёлый или наиболее срочный из выявленных критериев.",
+      options: Object.entries(ROAD_ACCIDENT_INJURY_LABELS_V1).map(([value, label]) => ({ value, label })),
+    }),
   ],
   branches: [
-    branch("m11", "Маршрут М-11", 10, "ДТП произошло в выбранной зоне М-11.", "Травмоцентр по подразделению, километру, возрасту и тяжести.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-001", "ДТП-003", "ДТП-005"]),
-    branch("m10_life_saving", "М-10 — жизнеспасающая операция", 20, "М-10 и требуется экстренная жизнеспасающая операция.", "Ближайший согласованный травмоцентр III уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-002", "ДТП-003"]),
-    branch("m10_other", "М-10 — иная травма", 30, "М-10 без критерия немедленной жизнеспасающей операции.", "Травмоцентр по зоне, возрасту и тяжести.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-003", "ДТП-005"]),
-    branch("territory_life_saving", "Территория — жизнеспасающая операция", 40, "Муниципальная территория и требуется жизнеспасающая операция.", "Травмоцентр III уровня либо согласованный ближайший пункт.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-002", "ДТП-003"]),
-    branch("territory_stable", "Территория — стабильная изолированная травма", 50, "Стабильная изолированная травма.", "Травмоцентр III уровня или закреплённый центр II уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-003", "ДТП-005"]),
-    branch("territory_child_severe", "Тяжёлая травма ребёнка", 60, "Тяжёлая травма у ребёнка.", "Прямой детский травмоцентр I уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-005"]),
-    branch("territory_adult_severe", "Тяжёлая травма взрослого", 70, "Тяжёлая травма у взрослого или подростка.", "Центр II уровня с возможным переводом в центр I уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-001", "ДТП-003", "ДТП-005"]),
+    branch("m11", "Маршрут по специальной таблице для М-11 «Нева»", 10, "Выбраны М-11, обслуживающее подразделение, километровая зона, возраст и критерий травмы.", "Травмоцентр по таблице М-11.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-001", "ДТП-003", "ДТП-005"]),
+    branch("m10", "Маршрут по зоне ответственности М-10 «Россия»", 20, "Выбраны М-10, дорожная зона, возраст и критерий травмы.", "Травмоцентр по таблице М-10.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-002", "ДТП-003", "ДТП-005"]),
+    branch("territory_level_three_life_saving", "Этапный маршрут через травмоцентр III уровня", 30, "Территория с травмоцентром III уровня и нужна операция в течение 10–20 минут.", "Первый этап — травмоцентр III уровня, затем центр II уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-002", "ДТП-003"]),
+    branch("territory_level_three_stable_limb", "Стабильная травма конечности через центр III уровня", 40, "Территория с травмоцентром III уровня и стабильная изолированная травма конечности.", "Первый этап — травмоцентр III уровня, затем при показаниях центр II уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-003", "ДТП-005"]),
+    branch("territory_life_saving_without_level_three", "Жизнеспасающая помощь без закреплённого центра III уровня", 50, "Для территории не закреплён отдельный травмоцентр III уровня.", "Закреплённый центр II уровня с обязательным оперативным согласованием.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-002", "ДТП-003"]),
+    branch("territory_child_high_risk", "Прямая детская маршрутизация в травмоцентр I уровня", 60, "Ребёнок 0–15 лет с тяжёлой или специализированной травмой.", "Областная детская клиническая больница.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-005"]),
+    branch("territory_valdai_teen_high_risk", "Высокий риск у подростка в Валдайской зоне", 70, "Подросток 16–17 лет с тяжёлой травмой в Валдайской зоне.", "Маршрут с учётом возрастного ограничения Валдайского ММЦ.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-001", "ДТП-005"]),
+    branch("territory_non_child_high_risk", "Тяжёлая травма подростка или взрослого", 80, "Тяжёлая или специализированная травма у пациента старше 15 лет.", "Центр II уровня с возможной эвакуацией в центр I уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-003", "ДТП-005"]),
+    branch("territory_other", "Иная территориальная травма", 90, "Другая травма без шока либо стабильная травма конечности без отдельного этапа III уровня.", "Закреплённый травмоцентр II уровня.", [ROAD_SOURCE.id, ROAD_RELATED_SOURCE.id], ["ДТП-003", "ДТП-005"]),
   ],
   sources: [ROAD_SOURCE, ROAD_RELATED_SOURCE],
   blockingCuratorQuestionIds: ["ДТП-001", "ДТП-002", "ДТП-003", "ДТП-004", "ДТП-005"],

@@ -8,26 +8,31 @@ export const OBSTETRICS_LPU_V1 = {
   NOKB: {
     id: "nokb",
     name: "ГОБУЗ «Новгородская областная клиническая больница» (НОКБ)",
+    address: "Великий Новгород, ул. Павла Левитта, д. 14",
   },
   NOKPC: {
     id: "nokpc",
     name: "ГОБУЗ «НОКПЦ имени В.Ю. Мишекурина» (НОКПЦ)",
+    address: "Великий Новгород, ул. Державина, д. 1",
     notes: "АРКЦ/перинатальный центр",
   },
   NOIB: {
     id: "noib",
     name: "ГОБУЗ «Новгородская областная инфекционная больница»",
+    address: "Великий Новгород, ул. Тимура Фрунзе-Оловянка, д. 21",
   },
   CGKB: {
     id: "cgkb",
     name: "ГОБУЗ «Центральная городская клиническая больница» (ЦГКБ)",
+    address: "Великий Новгород, ул. Зелинского, д. 11",
   },
-  BOR: { id: "bor", name: "ГОБУЗ «Боровичская ЦРБ» (Боровичи)" },
-  PESTO: { id: "pesto", name: "ГОБУЗ «Пестовская ЦРБ» (Пестово)" },
-  STAR: { id: "star", name: "ГОБУЗ «Старорусская ЦРБ» (Старая Русса)" },
+  BOR: { id: "bor", name: "ГОБУЗ «Боровичская ЦРБ» (Боровичи)", address: "Боровичи, пл. 1 Мая, д. 2А" },
+  PESTO: { id: "pesto", name: "ГОБУЗ «Пестовская ЦРБ» (Пестово)", address: "Пестово, ул. Курганная, д. 18" },
+  STAR: { id: "star", name: "ГОБУЗ «Старорусская ЦРБ» (Старая Русса)", address: "Старая Русса, ул. Гостинодворская, д. 50" },
   VALDAI: {
     id: "valdai",
     name: "Валдайский ММЦ ФГБУ «СЗОНКЦ им. Л.Г. Соколова» ФМБА России",
+    address: "Валдай, ул. Песчаная, д. 1А",
     notes: "по согласованию",
   },
 } as const;
@@ -266,6 +271,19 @@ const NOT_VALDAI_TERRITORY: RoutingConditionV1 = {
   op: "not",
   condition: VALDAI_TERRITORY,
 };
+const NO_INFECTION: RoutingConditionV1 = all(
+  { op: "neq", field: "infectionType", value: "flu_covid" },
+  { op: "neq", field: "infectionType", value: "arvi_pneumo" },
+);
+const NO_TRAUMA = FALSE("trauma");
+const NO_SURGERY = FALSE("surgery");
+const NO_EXTRAGENITAL = FALSE("extragenitalInpatient");
+const NO_OVERRIDES: RoutingConditionV1 = all(
+  NO_INFECTION,
+  NO_TRAUMA,
+  NO_SURGERY,
+  NO_EXTRAGENITAL,
+);
 
 function criticalResult(profileNokb: boolean): RoutingTemplateV1 {
   return {
@@ -429,7 +447,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
     {
       id: "trauma_severe",
       priority: 30,
-      when: all(TRUE("trauma"), TRUE("traumaSevere")),
+      when: all(NO_INFECTION, TRUE("trauma"), TRUE("traumaSevere")),
       result: {
         target: territoryTarget("traumaIcuTargets"),
         alternative: catalog("lpu", "NOKB"),
@@ -449,7 +467,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
     {
       id: "trauma_nonsevere",
       priority: 31,
-      when: all(TRUE("trauma"), FALSE("traumaSevere")),
+      when: all(NO_INFECTION, TRUE("trauma"), FALSE("traumaSevere")),
       result: {
         target: territoryTarget("nearestTargets"),
         alternative: catalog("lpu", "NOKB"),
@@ -470,6 +488,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "surgery_life_gyne_city",
       priority: 40,
       when: all(
+        NO_INFECTION,
+        NO_TRAUMA,
         TRUE("surgery"),
         TRUE("surgeryLifeThreat"),
         SCENARIO("gyne_lt37"),
@@ -491,6 +511,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "surgery_life_gyne_regional",
       priority: 41,
       when: all(
+        NO_INFECTION,
+        NO_TRAUMA,
         TRUE("surgery"),
         TRUE("surgeryLifeThreat"),
         SCENARIO("gyne_lt37"),
@@ -512,6 +534,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "surgery_life_obstetric_postpartum",
       priority: 42,
       when: all(
+        NO_INFECTION,
+        NO_TRAUMA,
         TRUE("surgery"),
         TRUE("surgeryLifeThreat"),
         {
@@ -534,6 +558,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "surgery_nonlife_valdai",
       priority: 43,
       when: all(
+        NO_INFECTION,
+        NO_TRAUMA,
         TRUE("surgery"),
         FALSE("surgeryLifeThreat"),
         VALDAI_TERRITORY,
@@ -552,6 +578,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "surgery_nonlife",
       priority: 44,
       when: all(
+        NO_INFECTION,
+        NO_TRAUMA,
         TRUE("surgery"),
         FALSE("surgeryLifeThreat"),
         NOT_VALDAI_TERRITORY,
@@ -568,7 +596,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
     {
       id: "extragenital",
       priority: 50,
-      when: TRUE("extragenitalInpatient"),
+      when: all(NO_INFECTION, NO_TRAUMA, NO_SURGERY, TRUE("extragenitalInpatient")),
       result: {
         target: catalog("lpu", "NOKB"),
         transport: "СМП (по согласованию/профилю)",
@@ -583,6 +611,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "postpartum_critical_profile",
       priority: 60,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("postpartum_le42"),
         TRUE("critical"),
         { op: "eq", field: "criticalRoute", value: "profile_nokb" },
@@ -593,6 +622,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "postpartum_critical_kas",
       priority: 61,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("postpartum_le42"),
         TRUE("critical"),
         { op: "neq", field: "criticalRoute", value: "profile_nokb" },
@@ -603,6 +633,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "postpartum_issue_critical",
       priority: 62,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("postpartum_le42"),
         {
           op: "in",
@@ -632,6 +664,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "postpartum_other_valdai",
       priority: 63,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("postpartum_le42"),
         { op: "eq", field: "postpartumIssue", value: "postop_pain_other" },
         VALDAI_TERRITORY,
@@ -650,6 +684,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "postpartum_other",
       priority: 64,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("postpartum_le42"),
         { op: "eq", field: "postpartumIssue", value: "postop_pain_other" },
         NOT_VALDAI_TERRITORY,
@@ -667,6 +703,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "gyne_critical_valdai",
       priority: 70,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("gyne_lt37"),
         HAS_TERRITORY,
         TRUE("critical"),
@@ -688,6 +725,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "gyne_critical",
       priority: 71,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("gyne_lt37"),
         HAS_TERRITORY,
         TRUE("critical"),
@@ -709,6 +747,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "gyne_emergency_valdai",
       priority: 72,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("gyne_lt37"),
         HAS_TERRITORY,
         FALSE("critical"),
@@ -730,6 +769,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "gyne_emergency",
       priority: 73,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("gyne_lt37"),
         HAS_TERRITORY,
         FALSE("critical"),
@@ -751,6 +791,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_critical_profile",
       priority: 80,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         TRUE("critical"),
@@ -762,6 +803,7 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_critical_kas",
       priority: 81,
       when: all(
+        NO_OVERRIDES,
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         TRUE("critical"),
@@ -773,6 +815,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_preterm_nokpc",
       priority: 82,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         TRUE("pretermLabor"),
@@ -789,6 +833,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_preterm_fallback",
       priority: 83,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         TRUE("pretermLabor"),
@@ -814,6 +860,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_mid_high_risk",
       priority: 84,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         { op: "in", field: "riskDelivery", values: ["mid", "high"] },
@@ -837,6 +885,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_low_risk_valdai",
       priority: 85,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         { op: "eq", field: "riskDelivery", value: "low" },
@@ -856,6 +906,8 @@ export const OBSTETRICS_RULE_SET_V1 = {
       id: "obstetrics_low_risk",
       priority: 86,
       when: all(
+        NO_OVERRIDES,
+        FALSE("critical"),
         SCENARIO("obstetrics_ge37"),
         HAS_TERRITORY,
         { op: "eq", field: "riskDelivery", value: "low" },

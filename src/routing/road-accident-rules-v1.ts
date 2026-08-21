@@ -700,7 +700,26 @@ export const ROAD_ACCIDENT_RULE_SET_V1 = {
         conditions: [
           { op: "eq", field: "locationKind", value: "territory" },
           VALID_TERRITORY,
-          { op: "in", field: "ageGroup", values: ["age_16_17", "adult_18_plus"] },
+          {
+            op: "any",
+            conditions: [
+              { op: "eq", field: "ageGroup", value: "adult_18_plus" },
+              {
+                op: "all",
+                conditions: [
+                  { op: "eq", field: "ageGroup", value: "age_16_17" },
+                  {
+                    op: "not",
+                    condition: {
+                      op: "in",
+                      field: "territory",
+                      values: VALDAI_LEVEL_TWO_TERRITORIES,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
           {
             op: "in",
             field: "injuryCriterion",
@@ -720,9 +739,32 @@ export const ROAD_ACCIDENT_RULE_SET_V1 = {
           VALID_TERRITORY,
           VALID_AGE,
           {
-            op: "in",
-            field: "injuryCriterion",
-            values: ["other_without_shock", "stable_isolated_limb"],
+            op: "any",
+            conditions: [
+              {
+                op: "eq",
+                field: "injuryCriterion",
+                value: "other_without_shock",
+              },
+              {
+                op: "all",
+                conditions: [
+                  {
+                    op: "eq",
+                    field: "injuryCriterion",
+                    value: "stable_isolated_limb",
+                  },
+                  {
+                    op: "not",
+                    condition: {
+                      op: "in",
+                      field: "territory",
+                      values: TERRITORIES_WITH_LEVEL_THREE,
+                    },
+                  },
+                ],
+              },
+            ],
           },
         ],
       },

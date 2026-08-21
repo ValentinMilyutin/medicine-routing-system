@@ -40,6 +40,7 @@ export const BSK_FACILITIES_V1 = {
     id: "nearest_reanimation",
     name: "Ближайшая медицинская организация с реанимационным отделением",
     role: "Маршрут при нестабильном пациенте",
+    address: "Организацию и адрес определяет диспетчер после подтверждения доступной ОАРИТ",
   },
 } as const;
 
@@ -153,6 +154,14 @@ const all = (...conditions: RoutingConditionV1[]): RoutingConditionV1 => ({
   op: "all",
   conditions,
 });
+const STABLE_VITALS = FALSE("unstableVitals");
+
+function stableRules(rules: readonly RoutingRuleV1[]): RoutingRuleV1[] {
+  return rules.map((rule) => ({
+    ...rule,
+    when: all(STABLE_VITALS, rule.when),
+  }));
+}
 
 const HAS_SEVERE_MOTOR_DEFICIT: RoutingConditionV1 = {
   op: "any",
@@ -637,9 +646,9 @@ export const BSK_RULE_SET_V1 = {
         warnings: [],
       },
     },
-    ...STROKE_RULES,
-    ...ACS_RULES,
-    ...OTHER_CVD_RULES,
-    ...KINK_RULES,
+    ...stableRules(STROKE_RULES),
+    ...stableRules(ACS_RULES),
+    ...stableRules(OTHER_CVD_RULES),
+    ...stableRules(KINK_RULES),
   ],
 } satisfies RoutingRuleSetV1;

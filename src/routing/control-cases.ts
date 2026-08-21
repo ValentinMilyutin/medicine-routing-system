@@ -18,6 +18,7 @@ import {
   type RoutingRuleSetV1,
   type RoutingRuleSetValidationIssue,
 } from "./rules-v1.js";
+import { prepareRoutingEvaluationState } from "./evaluation-state.js";
 
 export type RoutingControlCaseCheck = {
   ok: boolean;
@@ -35,19 +36,23 @@ function stringField(value: Record<string, unknown>, field: string): string {
 
 function expectationFromEvaluation(
   evaluation: RoutingRuleEvaluationV1,
+  profileId: RoutingRuleSetV1["profileId"],
 ): RoutingControlCaseExpectation | null {
   if (!isRecord(evaluation.result)) {
     return null;
   }
   const result = evaluation.result as Record<string, unknown>;
-  if (!isRecord(result.target)) return null;
-  const target = result.target as Record<string, unknown>;
+  const targetValue = profileId === "oncology"
+    ? result.locationPrimaryHospital
+    : result.target;
+  if (!isRecord(targetValue)) return null;
+  const target = targetValue as Record<string, unknown>;
   const nextTarget = isRecord(result.nextTarget)
     ? result.nextTarget
     : undefined;
   const expectation: RoutingControlCaseExpectation = {
     ruleId: evaluation.ruleId,
-    title: stringField(result, "title"),
+    title: stringField(result, profileId === "oncology" ? "routeTitle" : "title"),
     targetName: stringField(target, "name"),
     targetAddress: stringField(target, "address"),
   };
@@ -91,8 +96,11 @@ export function captureRoutingControlCaseExpectation(
   if (unansweredRequiredRoutingQuestions(questions, state).length > 0) {
     return null;
   }
-  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
-  return evaluation ? expectationFromEvaluation(evaluation) : null;
+  const evaluation = evaluateRoutingRuleSetV1(
+    ruleSet,
+    prepareRoutingEvaluationState(ruleSet.profileId, state),
+  );
+  return evaluation ? expectationFromEvaluation(evaluation, ruleSet.profileId) : null;
 }
 
 export function checkRoutingControlCase(
@@ -131,11 +139,14 @@ export function checkRoutingControlCase(
   }
 
   try {
-    const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
+    const evaluation = evaluateRoutingRuleSetV1(
+      ruleSet,
+      prepareRoutingEvaluationState(ruleSet.profileId, state),
+    );
     if (!evaluation) {
       return { ok: false, message: "Ни одна ветка не определяет маршрут." };
     }
-    const actual = expectationFromEvaluation(evaluation);
+    const actual = expectationFromEvaluation(evaluation, ruleSet.profileId);
     if (!actual) {
       return {
         ok: false,
@@ -201,6 +212,8 @@ export function validateInfectiousControlCases(
   return issues;
 }
 
+export const validateRoutingControlCases = validateInfectiousControlCases;
+
 export function validateInfectiousPublicationReadiness(
   questions: readonly RoutingQuestionDescriptor[],
   ruleSet: RoutingRuleSetV1,
@@ -232,6 +245,9 @@ export function validateInfectiousPublicationReadiness(
   return issues;
 }
 
+export const validateRoutingPublicationReadiness =
+  validateInfectiousPublicationReadiness;
+
 function uniqueCaseId(existing: ReadonlySet<string>, ruleId: string): string {
   const base = `case_${ruleId}`.replace(/[^A-Za-z0-9_]/g, "_");
   if (!existing.has(base)) return base;
@@ -250,14 +266,20 @@ export function suggestRoutingControlCases(
   );
   const ids = new Set(existing.map((controlCase) => controlCase.id));
   const suggestions: RoutingControlCase[] = [];
-  const matrix = buildRoutingQuestionnaireScenarioMatrix(questions, 20_000);
+  const matrix = buildRoutingQuestionnaireScenarioMatrix(
+    questions,
+    ruleSet.profileId === "oncology" || ruleSet.profileId === "obgyn" ? 50_000 : 20_000,
+  );
   for (const candidate of matrix.states) {
     if (unansweredRequiredRoutingQuestions(questions, candidate).length > 0) {
       continue;
     }
-    const evaluation = evaluateRoutingRuleSetV1(ruleSet, candidate);
+    const evaluation = evaluateRoutingRuleSetV1(
+      ruleSet,
+      prepareRoutingEvaluationState(ruleSet.profileId, candidate),
+    );
     if (!evaluation || existingRuleIds.has(evaluation.ruleId)) continue;
-    const expected = expectationFromEvaluation(evaluation);
+    const expected = expectationFromEvaluation(evaluation, ruleSet.profileId);
     if (!expected) continue;
     const id = uniqueCaseId(ids, evaluation.ruleId);
     ids.add(id);

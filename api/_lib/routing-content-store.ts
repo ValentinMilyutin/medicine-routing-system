@@ -5,12 +5,14 @@ import {
   assertRoutingContentDocument,
   assertRoutingRuleSetV1,
   createRoutingContentDraft,
-  hydrateLegacyInfectiousQuestions,
+  hydrateLegacyRoutingQuestions,
   routingContentDocuments,
   routingRuleSetRegistry,
   submitRoutingContentForReview,
   validateInfectiousPublicationReadiness,
   validateInfectiousRuleSetForEditor,
+  validateRoutingPublicationReadiness,
+  validateRoutingRuleSetForEditor,
   type RoutingProfileContentDocument,
   type RoutingProfileId,
   type RoutingRuleSetV1,
@@ -123,7 +125,7 @@ function parseBundle(
       reason instanceof Error ? reason.message : "Некорректное содержимое версии.",
     );
   }
-  const normalizedDocument = hydrateLegacyInfectiousQuestions(document, ruleSet);
+  const normalizedDocument = hydrateLegacyRoutingQuestions(document, ruleSet);
   try {
     assertRoutingContentDocument(normalizedDocument);
   } catch (reason) {
@@ -150,6 +152,25 @@ function parseBundle(
     if (issues.length > 0) {
       throw new RoutingContentInputError(
         `Инфекционный черновик не прошёл контроль сценариев:\n${issues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join("\n")}`,
+      );
+    }
+  } else if (
+    normalizedDocument.profileId === "road_accident" ||
+    normalizedDocument.profileId === "dermatology" ||
+    normalizedDocument.profileId === "bsk" ||
+    normalizedDocument.profileId === "oncology" ||
+    normalizedDocument.profileId === "obgyn"
+  ) {
+    const issues = validateRoutingRuleSetForEditor(
+      ruleSet,
+      normalizedDocument.questions,
+      normalizedDocument.profileId,
+    );
+    if (issues.length > 0) {
+      throw new RoutingContentInputError(
+        `Черновик профиля не прошёл контроль сценариев:\n${issues
           .map((issue) => `${issue.path}: ${issue.message}`)
           .join("\n")}`,
       );
@@ -437,8 +458,10 @@ function transformedDocument(
 }
 
 function assertPublicationReady(version: StoredRoutingVersion) {
-  if (version.profileId !== "infectious") return;
-  const issues = validateInfectiousPublicationReadiness(
+  if (!["infectious", "road_accident", "dermatology", "bsk", "oncology", "obgyn"].includes(version.profileId)) return;
+  const issues = (version.profileId === "infectious"
+    ? validateInfectiousPublicationReadiness
+    : validateRoutingPublicationReadiness)(
     version.document.questions,
     version.ruleSet,
     version.document.controlCases,
@@ -508,9 +531,9 @@ export async function approveStoredRoutingVersion(input: {
     );
   }
   const current = await currentVersionForTransition(input);
-  if (current.profileId !== "infectious") {
+  if (!["infectious", "road_accident", "dermatology", "bsk", "oncology", "obgyn"].includes(current.profileId)) {
     throw new RoutingContentInputError(
-      "Публикация через конструктор пока разрешена только для инфекционного профиля.",
+      "Публикация через визуальный конструктор для этого профиля пока не подключена.",
     );
   }
   assertPublicationReady(current);

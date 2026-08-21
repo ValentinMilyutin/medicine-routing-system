@@ -10,6 +10,7 @@ import {
   evaluateRoutingRuleSetV1,
   type RoutingRuleSetV1,
 } from "./rules-v1.js";
+import { prepareRoutingEvaluationState } from "./evaluation-state.js";
 
 export type RoutingBehaviorOutcome =
   | { kind: "incomplete"; label: string }
@@ -74,14 +75,24 @@ function outcome(
       label: `Нужно заполнить: ${missing.map((item) => item.label).join(", ")}`,
     };
   }
-  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
+  const evaluation = evaluateRoutingRuleSetV1(
+    ruleSet,
+    prepareRoutingEvaluationState(ruleSet.profileId, state),
+  );
   if (!evaluation) return { kind: "gap", label: "Маршрут не найден" };
   const result: Record<string, unknown> = isRecord(evaluation.result)
     ? (evaluation.result as Record<string, unknown>)
     : {};
-  const target = isRecord(result.target) ? result.target : {};
+  const targetValue = ruleSet.profileId === "oncology"
+    ? result.locationPrimaryHospital
+    : result.target;
+  const target = isRecord(targetValue) ? targetValue : {};
   const nextTarget = isRecord(result.nextTarget) ? result.nextTarget : {};
-  const title = typeof result.title === "string" ? result.title : "Без названия";
+  const title = typeof result.title === "string"
+    ? result.title
+    : typeof result.routeTitle === "string"
+      ? result.routeTitle
+      : "Без названия";
   const targetName =
     typeof target.name === "string" ? target.name : "Пункт не определён";
   const targetAddress =

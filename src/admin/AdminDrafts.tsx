@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   compareRoutingVersions,
-  hydrateLegacyInfectiousQuestions,
+  hydrateLegacyRoutingQuestions,
   publicationBlockers,
   validateInfectiousPublicationReadiness,
   validateInfectiousRuleSetForEditor,
+  validateRoutingPublicationReadiness,
+  validateRoutingRuleSetForEditor,
   validateRoutingContentDocument,
   validateRoutingRuleSetV1,
   type RoutingProfileId,
+  type RoutingProfileContentDocument,
   type RoutingQuestionnaireState,
   type RoutingRuleSetV1,
 } from "../routing";
@@ -28,6 +31,9 @@ import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
 import InfectiousQuestionnaireBuilder from "./InfectiousQuestionnaireBuilder";
 import InfectiousVersionPreview from "./InfectiousVersionPreview";
 import InfectiousControlCaseBuilder from "./InfectiousControlCaseBuilder";
+import RoadAccidentRuleBuilder from "./RoadAccidentRuleBuilder";
+import RoutingVersionPreview from "./RoutingVersionPreview";
+import FacilityRuleBuilder from "./FacilityRuleBuilder";
 import RoutingVersionComparison from "./RoutingVersionComparison";
 
 const STATUS_LABELS = {
@@ -37,12 +43,70 @@ const STATUS_LABELS = {
   archived: "В архиве",
 } as const;
 
-function withDynamicInfectiousQuestions(
+function supportsVisualEditor(profileId: RoutingProfileId): boolean {
+  return profileId === "infectious" || profileId === "road_accident" || profileId === "dermatology" || profileId === "bsk" || profileId === "oncology" || profileId === "obgyn";
+}
+
+function withDynamicRoutingQuestions(
   version: StoredRoutingVersion,
 ): StoredRoutingVersion {
   return {
     ...version,
-    document: hydrateLegacyInfectiousQuestions(version.document, version.ruleSet),
+    document: hydrateLegacyRoutingQuestions(version.document, version.ruleSet),
+  };
+}
+
+function syncBranchDescriptors(
+  document: RoutingProfileContentDocument,
+  ruleSet: RoutingRuleSetV1,
+  previousRuleSet?: RoutingRuleSetV1,
+): RoutingProfileContentDocument {
+  const previous = new Map(document.branches.map((branch) => [branch.id, branch]));
+  const previousRules = new Map(
+    previousRuleSet?.rules.map((rule) => [rule.id, rule]) ?? [],
+  );
+  const nextRuleIds = new Set(ruleSet.rules.map((rule) => rule.id));
+  const defaultSourceIds = document.sources.map((source) => source.id);
+  const synchronized = document.branches
+    .filter((branch) => !previousRules.has(branch.id) || nextRuleIds.has(branch.id))
+    .map((branch) => {
+      const rule = ruleSet.rules.find((candidate) => candidate.id === branch.id);
+      if (!rule) return branch;
+      const result = typeof rule.result === "object" && rule.result !== null && !Array.isArray(rule.result)
+        ? rule.result as Record<string, unknown>
+        : {};
+      return {
+        ...branch,
+        title: typeof result.title === "string" ? result.title : branch.title,
+        priority: rule.priority,
+      };
+    });
+  const synchronizedIds = new Set(synchronized.map((branch) => branch.id));
+  const addedOrChangedRules = ruleSet.rules.filter((rule) => {
+    if (synchronizedIds.has(rule.id)) return false;
+    const before = previousRules.get(rule.id);
+    return !before || JSON.stringify(before) !== JSON.stringify(rule);
+  });
+  return {
+    ...document,
+    branches: [
+      ...synchronized,
+      ...addedOrChangedRules.map((rule) => {
+        const existing = previous.get(rule.id);
+        const result = typeof rule.result === "object" && rule.result !== null && !Array.isArray(rule.result)
+          ? rule.result as Record<string, unknown>
+          : {};
+        return {
+          id: rule.id,
+          title: typeof result.title === "string" ? result.title : (existing?.title ?? rule.id),
+          priority: rule.priority,
+          conditionSummary: existing?.conditionSummary ?? "Условие настроено в визуальном конструкторе.",
+          outcomeSummary: existing?.outcomeSummary ?? "Пункт назначения определяется исполняемым результатом ветки.",
+          sourceIds: existing?.sourceIds ?? defaultSourceIds,
+          curatorQuestionIds: existing?.curatorQuestionIds ?? [],
+        };
+      }),
+    ].sort((left, right) => left.priority - right.priority),
   };
 }
 
@@ -155,7 +219,7 @@ export default function AdminDrafts(props: {
       const details: Record<string, StoredRoutingVersion> = {};
       detailResults.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          const hydrated = withDynamicInfectiousQuestions(result.value);
+          const hydrated = withDynamicRoutingQuestions(result.value);
           details[hydrated.id] = hydrated;
         } else {
           console.error(
@@ -167,7 +231,7 @@ export default function AdminDrafts(props: {
       setVersions(allVersions);
       setEffectiveVersion({
         ...effective,
-        document: hydrateLegacyInfectiousQuestions(
+        document: hydrateLegacyRoutingQuestions(
           effective.document,
           effective.ruleSet,
         ),
@@ -184,7 +248,7 @@ export default function AdminDrafts(props: {
   }
 
   function openEditor(version: StoredRoutingVersion) {
-    const editableVersion = withDynamicInfectiousQuestions(version);
+    const editableVersion = withDynamicRoutingQuestions(version);
     setWorking(editableVersion);
     setEditableRuleSet(editableVersion.ruleSet);
     setRuleJson(JSON.stringify(editableVersion.ruleSet, null, 2));
@@ -206,7 +270,7 @@ export default function AdminDrafts(props: {
 
   function ruleSetForSave(): StoredRoutingVersion["ruleSet"] {
     if (!working) throw new Error("Версия не открыта.");
-    return (working.profileId === "infectious" && editableRuleSet
+    return (supportsVisualEditor(working.profileId) && editableRuleSet
       ? editableRuleSet
       : JSON.parse(ruleJson)) as StoredRoutingVersion["ruleSet"];
   }
@@ -252,7 +316,7 @@ export default function AdminDrafts(props: {
     setNotice("");
     try {
       const ruleSet: unknown =
-        working.profileId === "infectious" && editableRuleSet
+        supportsVisualEditor(working.profileId) && editableRuleSet
           ? editableRuleSet
           : JSON.parse(ruleJson);
       const saved = await saveAdminRoutingDraft({
@@ -351,7 +415,13 @@ export default function AdminDrafts(props: {
               editableRuleSet,
               working?.document.questions,
             )
-          : validateRoutingRuleSetV1(editableRuleSet)
+          : supportsVisualEditor(editableRuleSet.profileId)
+            ? validateRoutingRuleSetForEditor(
+                editableRuleSet,
+                working?.document.questions,
+                editableRuleSet.profileId,
+              )
+            : validateRoutingRuleSetV1(editableRuleSet)
         : [],
     [editableRuleSet, working?.document.questions],
   );
@@ -362,16 +432,26 @@ export default function AdminDrafts(props: {
   const publicationQuestions = working?.document.questions;
   const publicationControlCases = working?.document.controlCases;
   const editablePublicationIssues = useMemo(
-    () =>
-      working?.profileId === "infectious" &&
+    () => {
+      if (
+        working?.profileId &&
+      supportsVisualEditor(working.profileId) &&
       editableRuleSet &&
       publicationQuestions
-        ? validateInfectiousPublicationReadiness(
-            publicationQuestions,
-            editableRuleSet,
-            publicationControlCases,
-          )
-        : [],
+      ) {
+        if (!publicationControlCases || publicationControlCases.length === 0) {
+          return [{ path: "controlCases", message: "Добавьте контрольные примеры для исполняемых веток." }];
+        }
+        return (working.profileId === "infectious"
+          ? validateInfectiousPublicationReadiness
+          : validateRoutingPublicationReadiness)(
+          publicationQuestions,
+          editableRuleSet,
+          publicationControlCases,
+        );
+      }
+      return [];
+    },
     [
       editableRuleSet,
       publicationControlCases,
@@ -443,7 +523,7 @@ export default function AdminDrafts(props: {
                   : "Встроенная резервная версия. Ещё не утверждена через административный контур."}
               </div>
             </div>
-            {props.profileId === "infectious" ? (
+            {supportsVisualEditor(props.profileId) ? (
               <button
                 type="button"
                 onClick={() => setPreviewCurrent((current) => !current)}
@@ -458,12 +538,20 @@ export default function AdminDrafts(props: {
         <div className="text-sm text-neutral-500">Загрузка текущей версии…</div>
       ) : null}
 
-      {previewCurrent && effectiveVersion && props.profileId === "infectious" ? (
-        <InfectiousVersionPreview
-          key={effectiveVersion.id}
-          document={effectiveVersion.document}
-          ruleSet={effectiveVersion.ruleSet}
-        />
+      {previewCurrent && effectiveVersion && supportsVisualEditor(props.profileId) ? (
+        props.profileId === "infectious" ? (
+          <InfectiousVersionPreview
+            key={effectiveVersion.id}
+            document={effectiveVersion.document}
+            ruleSet={effectiveVersion.ruleSet}
+          />
+        ) : (
+          <RoutingVersionPreview
+            key={effectiveVersion.id}
+            document={effectiveVersion.document}
+            ruleSet={effectiveVersion.ruleSet}
+          />
+        )
       ) : null}
 
       <div className="rounded-2xl border border-neutral-200 p-4">
@@ -617,7 +705,7 @@ export default function AdminDrafts(props: {
             />
           ) : null}
 
-          {working.profileId === "infectious" ? (
+          {supportsVisualEditor(working.profileId) ? (
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -629,13 +717,22 @@ export default function AdminDrafts(props: {
             </div>
           ) : null}
 
-          {previewSelected && working.profileId === "infectious" && editableRuleSet ? (
-            <InfectiousVersionPreview
-              key={`${working.id}-${working.revision}-${JSON.stringify(inspectionState)}`}
-              document={working.document}
-              ruleSet={editableRuleSet}
-              initialState={inspectionState ?? undefined}
-            />
+          {previewSelected && supportsVisualEditor(working.profileId) && editableRuleSet ? (
+            working.profileId === "infectious" ? (
+              <InfectiousVersionPreview
+                key={`${working.id}-${working.revision}-${JSON.stringify(inspectionState)}`}
+                document={working.document}
+                ruleSet={editableRuleSet}
+                initialState={inspectionState ?? undefined}
+              />
+            ) : (
+              <RoutingVersionPreview
+                key={`${working.id}-${working.revision}-${JSON.stringify(inspectionState)}`}
+                document={working.document}
+                ruleSet={editableRuleSet}
+                initialState={inspectionState ?? undefined}
+              />
+            )
           ) : null}
 
           {working.status !== "draft" ? (
@@ -662,7 +759,7 @@ export default function AdminDrafts(props: {
             />
           </label>
 
-          {working.profileId !== "infectious" ? <details>
+          {!supportsVisualEditor(working.profileId) ? <details>
             <summary className="cursor-pointer text-sm font-semibold">Подписи вопросов ({working.document.questions.length})</summary>
             <div className="mt-3 space-y-2">
               {working.document.questions.map((question, index) => (
@@ -844,7 +941,7 @@ export default function AdminDrafts(props: {
             </div>
           </details>
 
-          {working.profileId === "infectious" && editableRuleSet ? (
+          {supportsVisualEditor(working.profileId) && editableRuleSet ? (
             <>
               <InfectiousQuestionnaireBuilder
                 questions={working.document.questions}
@@ -858,14 +955,174 @@ export default function AdminDrafts(props: {
                   setRuleJson(JSON.stringify(nextRuleSet, null, 2));
                 }}
               />
-              <InfectiousRuleBuilder
-                ruleSet={editableRuleSet}
-                questions={working.document.questions}
-                onChange={(next) => {
-                  setEditableRuleSet(next);
-                  setRuleJson(JSON.stringify(next, null, 2));
-                }}
-              />
+              {working.profileId === "infectious" ? (
+                <InfectiousRuleBuilder
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              ) : working.profileId === "road_accident" ? (
+                <RoadAccidentRuleBuilder
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              ) : working.profileId === "dermatology" ? (
+                <FacilityRuleBuilder
+                  profileId="dermatology"
+                  title="Дерматовенерология"
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  tables={[
+                    {
+                      catalogId: "territories",
+                      label: "Амбулаторные назначения по территории",
+                      key: { $field: "territory" },
+                    },
+                  ]}
+                  secondaryTargetField="afterStabilization"
+                  secondaryTargetLabelField="afterStabilizationLabel"
+                  listFields={[
+                    { field: "actions", label: "Действия СМП" },
+                    { field: "handoff", label: "Что передать принимающей стороне" },
+                    { field: "sources", label: "Нормативные основания", structured: true },
+                  ]}
+                  newRuleSourcesStructured
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              ) : working.profileId === "bsk" ? (
+                <FacilityRuleBuilder
+                  profileId="bsk"
+                  title="БСК / ССЗ"
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  tables={[
+                    { catalogId: "strokeZoneTargets", label: "ОНМК по территории", key: { $field: "territory" } },
+                    { catalogId: "acsZoneTargets", label: "ОКС по территории", key: { $field: "territory" } },
+                    { catalogId: "otherCvdTargets", label: "Другие острые ССЗ по территории", key: { $field: "territory" } },
+                    { catalogId: "kinkSurgeryTargets", label: "Хирургический маршрут КИНК", key: { $field: "territory" } },
+                  ]}
+                  secondaryTargetField="alternative"
+                  listFields={[
+                    { field: "notify", label: "Кого предупредить" },
+                    { field: "checklist", label: "Чек-лист СМП" },
+                    { field: "handoff", label: "Что передать принимающей стороне" },
+                    { field: "sources", label: "Нормативные основания" },
+                    { field: "warnings", label: "Предупреждения" },
+                  ]}
+                  includeFacilityId
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              ) : working.profileId === "oncology" ? (
+                <FacilityRuleBuilder
+                  profileId="oncology"
+                  title="Онкология"
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  facilityCatalogId="primaryByTerritory"
+                  facilityMirrorFields={{ name: "primaryNames", address: "primaryAddresses" }}
+                  primaryTargetField="locationPrimaryHospital"
+                  resultTitleField="routeTitle"
+                  tables={[
+                    { catalogId: "primaryByTerritory", label: "Опорная медицинская организация по территории", key: { $field: "territoryKey" } },
+                  ]}
+                  textFields={[
+                    { field: "routeTitle", label: "Название результата" },
+                    { field: "target", label: "Решение для бригады", rows: 3 },
+                    { field: "transport", label: "Порядок транспортировки", rows: 3 },
+                  ]}
+                  listFields={[
+                    { field: "callouts", label: "Пояснения бригаде" },
+                    { field: "uncertainties", label: "Неопределённости и согласования" },
+                    { field: "sources", label: "Нормативные основания" },
+                  ]}
+                  newRuleResult={{
+                    route: "medical_transport_non_emergency",
+                    routeTitle: "Новая маршрутная ветка",
+                    target: "Укажите решение для бригады СМП.",
+                    transport: "Укажите порядок транспортировки.",
+                    callouts: ["Укажите обязательное действие."],
+                    sources: ["Укажите официальный нормативный источник."],
+                  }}
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              ) : (
+                <FacilityRuleBuilder
+                  profileId="obgyn"
+                  title="Акушерство / гинекология"
+                  ruleSet={editableRuleSet}
+                  questions={working.document.questions}
+                  facilityCatalogId="lpu"
+                  includeFacilityId
+                  tables={[
+                    { catalogId: "nearestTargets", label: "Ближайший стационар по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "traumaIcuTargets", label: "ДТП / травма с ОАРИТ по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "gynTargets", label: "Гинекологический маршрут по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "infectionMildTargets", label: "Нетяжёлая инфекция по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "surgeryTargets", label: "Хирургический маршрут по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "obstetricsLowRiskTargets", label: "Роды низкого риска по территории", key: { $field: "territoryKey" } },
+                    { catalogId: "postpartumOtherTargets", label: "Прочие послеродовые осложнения по территории", key: { $field: "territoryKey" } },
+                  ]}
+                  secondaryTargetField="alternative"
+                  textFields={[
+                    { field: "title", label: "Название результата" },
+                    { field: "transport", label: "Порядок транспортировки", rows: 3 },
+                  ]}
+                  listFields={[
+                    { field: "callouts", label: "Обоснование и действия" },
+                    { field: "sources", label: "Нормативные основания" },
+                  ]}
+                  newRuleResult={{
+                    title: "Новая маршрутная ветка",
+                    transport: "Укажите порядок транспортировки.",
+                    callouts: ["Укажите обязательное действие."],
+                    sources: ["Укажите официальный нормативный источник."],
+                  }}
+                  onChange={(next) => {
+                    setWorking({
+                      ...working,
+                      document: syncBranchDescriptors(working.document, next, editableRuleSet),
+                    });
+                    setEditableRuleSet(next);
+                    setRuleJson(JSON.stringify(next, null, 2));
+                  }}
+                />
+              )}
               <InfectiousControlCaseBuilder
                 document={working.document}
                 ruleSet={editableRuleSet}
@@ -938,7 +1195,7 @@ export default function AdminDrafts(props: {
               disabled={
                 loading ||
                 editableDocumentIssues.length > 0 ||
-                (working.profileId === "infectious" && editableRuleIssues.length > 0)
+                (supportsVisualEditor(working.profileId) && editableRuleIssues.length > 0)
               }
               className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
             >
@@ -951,7 +1208,7 @@ export default function AdminDrafts(props: {
                 loading ||
                 activePublicationBlockers.length > 0 ||
                 editableDocumentIssues.length > 0 ||
-                (working.profileId === "infectious" && editableRuleIssues.length > 0)
+                (supportsVisualEditor(working.profileId) && editableRuleIssues.length > 0)
               }
               className="rounded-xl bg-blue-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
             >
@@ -967,7 +1224,7 @@ export default function AdminDrafts(props: {
               <p className="text-xs text-neutral-600">
                 Укажите приказ, протокол или другое официальное решение, которым
                 согласована эта редакция. После публикации она станет рабочей для
-                инфекционного профиля.
+                выбранного профиля маршрутизации.
               </p>
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">Реквизиты решения</span>
@@ -983,7 +1240,7 @@ export default function AdminDrafts(props: {
                 onClick={approveVersion}
                 disabled={
                   loading ||
-                  working.profileId !== "infectious" ||
+                  !supportsVisualEditor(working.profileId) ||
                   activePublicationBlockers.length > 0 ||
                   !decisionDocument.trim()
                 }

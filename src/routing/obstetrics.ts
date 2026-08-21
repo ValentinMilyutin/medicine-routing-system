@@ -8,6 +8,7 @@ import {
   OBSTETRICS_TERRITORIES_VALDAI_V1,
 } from "./obstetrics-rules-v1.js";
 import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import { prepareRoutingEvaluationState } from "./evaluation-state.js";
 
 export type Scenario = "gyne_lt37" | "obstetrics_ge37" | "postpartum_le42";
 export type InfectionType = "none" | "arvi_pneumo" | "flu_covid";
@@ -35,7 +36,7 @@ export type PostpartumIssue =
 
 export type SurgeryProfile = "city" | "regional";
 
-type Lpu = { id: string; name: string; notes?: string };
+type Lpu = { id: string; name: string; address: string; notes?: string };
 
 export type FormState = {
   scenario?: Scenario;
@@ -77,20 +78,22 @@ export type RoutingResult = {
 };
 
 const LPU = {
-  NOKB: { id: "nokb", name: "ГОБУЗ «Новгородская областная клиническая больница» (НОКБ)" } as Lpu,
+  NOKB: { id: "nokb", name: "ГОБУЗ «Новгородская областная клиническая больница» (НОКБ)", address: "Великий Новгород, ул. Павла Левитта, д. 14" } as Lpu,
   NOKPC: {
     id: "nokpc",
     name: "ГОБУЗ «НОКПЦ имени В.Ю. Мишекурина» (НОКПЦ)",
+    address: "Великий Новгород, ул. Державина, д. 1",
     notes: "АРКЦ/перинатальный центр",
   } as Lpu,
-  NOIB: { id: "noib", name: "ГОБУЗ «Новгородская областная инфекционная больница»" } as Lpu,
-  CGKB: { id: "cgkb", name: "ГОБУЗ «Центральная городская клиническая больница» (ЦГКБ)" } as Lpu,
-  BOR: { id: "bor", name: "ГОБУЗ «Боровичская ЦРБ» (Боровичи)" } as Lpu,
-  PESTO: { id: "pesto", name: "ГОБУЗ «Пестовская ЦРБ» (Пестово)" } as Lpu,
-  STAR: { id: "star", name: "ГОБУЗ «Старорусская ЦРБ» (Старая Русса)" } as Lpu,
+  NOIB: { id: "noib", name: "ГОБУЗ «Новгородская областная инфекционная больница»", address: "Великий Новгород, ул. Тимура Фрунзе-Оловянка, д. 21" } as Lpu,
+  CGKB: { id: "cgkb", name: "ГОБУЗ «Центральная городская клиническая больница» (ЦГКБ)", address: "Великий Новгород, ул. Зелинского, д. 11" } as Lpu,
+  BOR: { id: "bor", name: "ГОБУЗ «Боровичская ЦРБ» (Боровичи)", address: "Боровичи, пл. 1 Мая, д. 2А" } as Lpu,
+  PESTO: { id: "pesto", name: "ГОБУЗ «Пестовская ЦРБ» (Пестово)", address: "Пестово, ул. Курганная, д. 18" } as Lpu,
+  STAR: { id: "star", name: "ГОБУЗ «Старорусская ЦРБ» (Старая Русса)", address: "Старая Русса, ул. Гостинодворская, д. 50" } as Lpu,
   VALDAI: {
     id: "valdai",
     name: "Валдайский ММЦ ФГБУ «СЗОНКЦ им. Л.Г. Соколова» ФМБА России",
+    address: "Валдай, ул. Песчаная, д. 1А",
     notes: "по согласованию",
   } as Lpu,
 };
@@ -542,6 +545,7 @@ function isLpu(value: unknown): value is Lpu {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.name === "string" &&
+    typeof value.address === "string" &&
     (value.notes === undefined || typeof value.notes === "string")
   );
 }
@@ -560,27 +564,18 @@ function routingResultFromRules(value: unknown): RoutingResult {
   return value as RoutingResult;
 }
 
-const ROUTING_TERRITORY_VALUES = new Set<string>([
-  ...TERRITORIES_BOROVICHI,
-  ...TERRITORIES_STARAYA_RUSSA,
-  ...TERRITORIES_VALDAI,
-  ...TERRITORIES_NOVGOROD,
-  "Мошенской район",
-  "Пестово",
-]);
-
 function normalizeRoutingState(state: FormState) {
-  const territoryKey = !state.territory
-    ? "__missing__"
-    : ROUTING_TERRITORY_VALUES.has(state.territory)
-      ? state.territory
-      : "__unknown__";
-  return {
-    ...state,
-    territoryKey,
-    territoryGroupKey: groupOfTerritory(state.territory),
-    criticalKindKey: state.criticalKind ?? "__missing__",
-  };
+  return prepareRoutingEvaluationState("obgyn", state);
+}
+
+export function evaluateObstetricsRoutingRuleSet(
+  ruleSet: import("./rules-v1.js").RoutingRuleSetV1,
+  state: Readonly<Record<string, unknown>>,
+) {
+  return evaluateRoutingRuleSetV1(
+    ruleSet,
+    prepareRoutingEvaluationState("obgyn", state),
+  );
 }
 
 export function evalRoutingRulesV1(state: FormState): RoutingResult | null {

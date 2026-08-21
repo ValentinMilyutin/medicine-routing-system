@@ -9,6 +9,10 @@ import {
   type RoutingRuleSetValidationIssue,
   type RoutingTemplateV1,
 } from "./rules-v1.js";
+import {
+  prepareRoutingEvaluationState,
+  routingDerivedFieldIds,
+} from "./evaluation-state.js";
 
 type Scenario = {
   id: string;
@@ -32,6 +36,7 @@ function validateConditionFields(
   path: string,
   issues: RoutingRuleSetValidationIssue[],
   questions?: readonly RoutingQuestionDescriptor[],
+  derivedFields: ReadonlySet<string> = new Set(),
 ) {
   if (condition.op === "all" || condition.op === "any") {
     condition.conditions.forEach((child, index) =>
@@ -40,6 +45,7 @@ function validateConditionFields(
         `${path}.conditions[${index}]`,
         issues,
         questions,
+        derivedFields,
       ),
     );
     return;
@@ -50,17 +56,18 @@ function validateConditionFields(
       `${path}.condition`,
       issues,
       questions,
+      derivedFields,
     );
     return;
   }
   const question = questions?.find((item) => item.id === condition.field);
   const allowed = questions
-    ? questions.some((item) => item.id === condition.field)
+    ? questions.some((item) => item.id === condition.field) || derivedFields.has(condition.field)
     : DEFAULT_ALLOWED_FIELDS.has(condition.field);
   if (!allowed) {
     issues.push({
       path: `${path}.field`,
-      message: `Поле ${condition.field} не существует в инфекционном опроснике.`,
+      message: `Поле ${condition.field} не существует в опроснике профиля.`,
     });
   }
   const arrayField = question
@@ -128,7 +135,7 @@ function validateTemplateFields(
     if (!allowedFields.has(record.$field)) {
       issues.push({
         path: `${path}.$field`,
-        message: `Поле ${record.$field} отсутствует в инфекционном опроснике.`,
+        message: `Поле ${record.$field} отсутствует в опроснике профиля.`,
       });
     }
     return;
@@ -140,7 +147,7 @@ function validateTemplateFields(
     if (!allowedFields.has(record.$joinCatalog.field)) {
       issues.push({
         path: `${path}.$joinCatalog.field`,
-        message: `Поле ${record.$joinCatalog.field} отсутствует в инфекционном опроснике.`,
+        message: `Поле ${record.$joinCatalog.field} отсутствует в опроснике профиля.`,
       });
     }
     return;
@@ -233,22 +240,36 @@ function requiredScenarios(): Scenario[] {
 function renderedResultIssues(
   value: RoutingTemplateV1,
   path: string,
+  profileId: string,
 ): RoutingRuleSetValidationIssue[] {
   if (!isRecord(value)) {
     return [{ path, message: "Результат маршрута должен быть объектом." }];
   }
   const result = value as Record<string, unknown>;
   const issues: RoutingRuleSetValidationIssue[] = [];
-  for (const field of ["title", "targetLabel", "urgency", "transport"] as const) {
+  const requiredTextFields = profileId === "obgyn"
+    ? ["transport"] as const
+    : profileId === "oncology"
+    ? ["routeTitle", "target", "transport"] as const
+    : profileId === "infectious" || profileId === "dermatology"
+    ? ["title", "targetLabel", "urgency", "transport"] as const
+    : profileId === "road_accident"
+      ? ["title", "targetLabel", "urgency"] as const
+      : ["title", "urgency"] as const;
+  for (const field of requiredTextFields) {
     if (typeof result[field] !== "string" || result[field].trim().length === 0) {
       issues.push({ path: `${path}.${field}`, message: "Ожидается непустой текст." });
     }
   }
-  if (!isRecord(result.target)) {
+  const targetValue = profileId === "oncology"
+    ? result.locationPrimaryHospital
+    : result.target;
+  if (!isRecord(targetValue)) {
     issues.push({ path: `${path}.target`, message: "Не определён пункт назначения." });
   } else {
-    const target = result.target as Record<string, unknown>;
-    for (const field of ["name", "role", "address"] as const) {
+    const target = targetValue as Record<string, unknown>;
+    const facilityFields = profileId === "oncology" || profileId === "obgyn" ? ["name", "address"] as const : ["name", "role", "address"] as const;
+    for (const field of facilityFields) {
       if (
         typeof target[field] !== "string" ||
         target[field].trim().length === 0
@@ -259,34 +280,209 @@ function renderedResultIssues(
         });
       }
     }
+    if (profileId === "road_accident") {
+      if (typeof target.id !== "string" || target.id.trim().length === 0) {
+        issues.push({
+          path: `${path}.target.id`,
+          message: "У травмоцентра должен быть идентификатор.",
+        });
+      }
+      if (target.level !== "I" && target.level !== "II" && target.level !== "III") {
+        issues.push({
+          path: `${path}.target.level`,
+          message: "У травмоцентра должен быть уровень I, II или III.",
+        });
+      }
+    }
+    if (profileId === "obgyn" && (typeof target.id !== "string" || target.id.trim().length === 0)) {
+      issues.push({ path: `${path}.target.id`, message: "У медицинской организации должен быть идентификатор." });
+    }
   }
-  for (const field of ["actions", "handoff"] as const) {
+  if (result.nextTarget !== undefined) {
+    if (!isRecord(result.nextTarget)) {
+      issues.push({
+        path: `${path}.nextTarget`,
+        message: "Следующий этап должен быть медицинской организацией.",
+      });
+    } else {
+      const nextTarget = result.nextTarget as Record<string, unknown>;
+      for (const field of ["name", "role", "address"] as const) {
+        if (typeof nextTarget[field] !== "string" || nextTarget[field].trim().length === 0) {
+          issues.push({
+            path: `${path}.nextTarget.${field}`,
+            message: "У следующего пункта не заполнено обязательное поле.",
+          });
+        }
+      }
+      if (
+        profileId === "road_accident" &&
+        (typeof nextTarget.id !== "string" ||
+          (nextTarget.level !== "I" && nextTarget.level !== "II" && nextTarget.level !== "III"))
+      ) {
+        issues.push({
+          path: `${path}.nextTarget`,
+          message: "У следующего травмоцентра нужны идентификатор и уровень.",
+        });
+      }
+    }
+  }
+  if (["infectious", "road_accident", "dermatology"].includes(profileId)) {
+    for (const field of ["actions", "handoff"] as const) {
+      if (
+        !Array.isArray(result[field]) ||
+        result[field].length === 0 ||
+        !result[field].every(
+          (item: unknown) => typeof item === "string" && item.trim().length > 0,
+        )
+      ) {
+        issues.push({
+          path: `${path}.${field}`,
+          message: "Нужен непустой список текстовых пунктов.",
+        });
+      }
+    }
+  }
+  if (profileId === "oncology") {
+    for (const field of ["callouts", "sources"] as const) {
+      if (!Array.isArray(result[field]) || result[field].length === 0 || !result[field].every((item: unknown) => typeof item === "string" && item.trim().length > 0)) {
+        issues.push({ path: `${path}.${field}`, message: "Нужен непустой список текстовых пунктов." });
+      }
+    }
+  }
+  if (profileId === "obgyn") {
+    for (const field of ["callouts", "sources"] as const) {
+      if (!Array.isArray(result[field]) || result[field].length === 0 || !result[field].every((item: unknown) => typeof item === "string" && item.trim().length > 0)) {
+        issues.push({ path: `${path}.${field}`, message: "Нужен непустой список текстовых пунктов." });
+      }
+    }
+  }
+  if (profileId === "infectious" || profileId === "dermatology") {
     if (
-      !Array.isArray(result[field]) ||
-      result[field].length === 0 ||
-      !result[field].every(
-        (item: unknown) => typeof item === "string" && item.trim().length > 0,
+      !Array.isArray(result.sources) ||
+      result.sources.length === 0 ||
+      !result.sources.every((source: unknown) => {
+        if (!isRecord(source)) return false;
+        const label = (source as Record<string, unknown>).label;
+        return typeof label === "string" && label.trim().length > 0;
+      })
+    ) {
+      issues.push({
+        path: `${path}.sources`,
+        message: "Нужно хотя бы одно заполненное нормативное основание.",
+      });
+    }
+  } else if (profileId === "bsk" || profileId === "oncology" || profileId === "obgyn") {
+    if (
+      !Array.isArray(result.sources) ||
+      result.sources.length === 0 ||
+      !result.sources.every(
+        (source: unknown) => typeof source === "string" && source.trim().length > 0,
       )
     ) {
       issues.push({
-        path: `${path}.${field}`,
-        message: "Нужен непустой список текстовых пунктов.",
+        path: `${path}.sources`,
+        message: "Нужно хотя бы одно заполненное нормативное основание.",
       });
     }
-  }
-  if (
-    !Array.isArray(result.sources) ||
-    result.sources.length === 0 ||
-    !result.sources.every((source: unknown) => {
-      if (!isRecord(source)) return false;
-      const label = (source as Record<string, unknown>).label;
-      return typeof label === "string" && label.trim().length > 0;
-    })
+  } else if (
+    typeof result.sourceReference !== "string" ||
+    result.sourceReference.trim().length === 0
   ) {
     issues.push({
-      path: `${path}.sources`,
-      message: "Нужно хотя бы одно заполненное нормативное основание.",
+      path: `${path}.sourceReference`,
+      message: "Нужно заполнить нормативное основание результата.",
     });
+  }
+  return issues;
+}
+
+export function validateRoutingRuleSetForEditor(
+  ruleSet: RoutingRuleSetV1,
+  questions?: readonly RoutingQuestionDescriptor[],
+  expectedProfileId = ruleSet.profileId,
+): RoutingRuleSetValidationIssue[] {
+  const structural = validateRoutingRuleSetV1(ruleSet);
+  if (structural.length > 0) return structural;
+
+  const issues: RoutingRuleSetValidationIssue[] = [];
+  if (ruleSet.profileId !== expectedProfileId) {
+    return [{
+      path: "profileId",
+      message: `Конструктор профиля ${expectedProfileId} получил набор правил ${ruleSet.profileId}.`,
+    }];
+  }
+  ruleSet.rules.forEach((rule, index) =>
+    validateConditionFields(
+      rule.when,
+      `rules[${index}].when`,
+      issues,
+      questions,
+      new Set(routingDerivedFieldIds(ruleSet.profileId)),
+    ),
+  );
+  const allowedTemplateFields = new Set(
+    [
+      ...(questions?.map((question) => question.id) ?? [...DEFAULT_ALLOWED_FIELDS]),
+      ...routingDerivedFieldIds(ruleSet.profileId),
+    ],
+  );
+  Object.entries(ruleSet.catalogs).forEach(([catalogId, catalog]) =>
+    Object.entries(catalog).forEach(([key, value]) =>
+      validateTemplateFields(
+        value,
+        `catalogs.${catalogId}.${key}`,
+        allowedTemplateFields,
+        issues,
+      ),
+    ),
+  );
+  ruleSet.rules.forEach((rule, index) =>
+    validateTemplateFields(
+      rule.result,
+      `rules[${index}].result`,
+      allowedTemplateFields,
+      issues,
+    ),
+  );
+  if (issues.length > 0 || !questions) return issues;
+
+  const matrix = buildRoutingQuestionnaireScenarioMatrix(
+    questions,
+    ruleSet.profileId === "obgyn"
+      ? 1_000
+      : ruleSet.profileId === "bsk" || ruleSet.profileId === "oncology"
+        ? 2_000
+        : 20_000,
+  );
+  for (const [index, state] of matrix.states.entries()) {
+    try {
+      const evaluation = evaluateRoutingRuleSetV1(
+        ruleSet,
+        prepareRoutingEvaluationState(ruleSet.profileId, state),
+      );
+      if (!evaluation) {
+        issues.push({
+          path: `scenarios.questionnaire:${index + 1}`,
+          message: "Ни одна ветка не определяет маршрут.",
+        });
+      } else {
+        issues.push(
+          ...renderedResultIssues(
+            evaluation.result,
+            `scenarios.questionnaire:${index + 1}.result`,
+            ruleSet.profileId,
+          ),
+        );
+      }
+    } catch (reason) {
+      issues.push({
+        path: `scenarios.questionnaire:${index + 1}`,
+        message: reason instanceof Error
+          ? reason.message
+          : "Расчёт маршрута завершился ошибкой.",
+      });
+    }
+    if (issues.length >= 30) break;
   }
   return issues;
 }
@@ -360,6 +556,7 @@ export function validateInfectiousRuleSetForEditor(
         const resultIssues = renderedResultIssues(
           evaluation.result,
           `scenarios.${scenario.id}.result`,
+          ruleSet.profileId,
         );
         issues.push(...resultIssues);
       }

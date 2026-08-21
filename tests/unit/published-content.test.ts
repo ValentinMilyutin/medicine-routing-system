@@ -56,7 +56,7 @@ describe("публичная версия маршрутизации", () => {
 
   it("отклоняет неподдерживаемые профили до обращения к базе", async () => {
     const response = await publishedContentHandler.fetch(
-      new Request("https://medicine.example/api/routing/content?profileId=bsk"),
+      new Request("https://medicine.example/api/routing/content?profileId=unknown_profile"),
     );
     expect(response.status).toBe(400);
   });

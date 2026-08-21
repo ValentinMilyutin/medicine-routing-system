@@ -5,7 +5,7 @@ import {
   DERMATOLOGY_RULE_SET_V1,
   DERMATOLOGY_TERRITORIES,
 } from "./dermatology-rules-v1.js";
-import { evaluateRoutingRuleSetV1 } from "./rules-v1.js";
+import { evaluateRoutingRuleSetV1, type RoutingRuleSetV1 } from "./rules-v1.js";
 
 
 export type Condition =
@@ -40,12 +40,14 @@ export type Source = {
 export type RoutingResult = {
   title: string;
   target: Facility;
+  targetLabel?: string;
   urgency: string;
   transport: string;
   actions: string[];
   handoff: string[];
   sources: Source[];
   afterStabilization?: Facility;
+  afterStabilizationLabel?: string;
 };
 
 export const TERRITORIES = DERMATOLOGY_TERRITORIES;
@@ -183,8 +185,10 @@ export function evaluateRoutingLegacy(state: FormState): RoutingResult | null {
     const condition = LEGACY_CONDITION_LABELS[state.condition];
     return {
       title: `${condition}: экстренная госпитализация`,
+      targetLabel: "Первый этап маршрута",
       target: LEGACY_FACILITIES.nearestIcu,
       afterStabilization: LEGACY_FACILITIES.nokvdInpatient,
+      afterStabilizationLabel: "После стабилизации",
       urgency: "Экстренно",
       transport:
         "Бригадой СМП после оперативного согласования принимающей медицинской организации.",
@@ -217,6 +221,7 @@ export function evaluateRoutingLegacy(state: FormState): RoutingResult | null {
   if (state.inpatientCare) {
     return {
       title: "Показана специализированная стационарная помощь",
+      targetLabel: "Куда госпитализировать",
       target: LEGACY_FACILITIES.nokvdInpatient,
       urgency: "По клиническим показаниям",
       transport:
@@ -239,6 +244,7 @@ export function evaluateRoutingLegacy(state: FormState): RoutingResult | null {
 
   return {
     title: "Амбулаторный маршрут по территории",
+    targetLabel: "Куда направить пациента",
     target: territory.outpatientTarget,
     urgency: "Планово или неотложно — по клиническому состоянию",
     transport:
@@ -309,10 +315,14 @@ function routingResultFromRules(value: unknown): RoutingResult {
 export function evaluateRoutingRulesV1(
   state: FormState,
 ): RoutingResult | null {
-  const evaluation = evaluateRoutingRuleSetV1(
-    DERMATOLOGY_RULE_SET_V1,
-    state,
-  );
+  return evaluateDermatologyRoutingRuleSet(DERMATOLOGY_RULE_SET_V1, state);
+}
+
+export function evaluateDermatologyRoutingRuleSet(
+  ruleSet: RoutingRuleSetV1,
+  state: Record<string, unknown>,
+): RoutingResult | null {
+  const evaluation = evaluateRoutingRuleSetV1(ruleSet, state);
   return evaluation ? routingResultFromRules(evaluation.result) : null;
 }
 

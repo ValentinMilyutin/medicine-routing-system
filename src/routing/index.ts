@@ -12,7 +12,10 @@ export {
 } from "./content-schema.js";
 export { routingContentDocuments } from "./content-manifests.js";
 export { routingRuleSetRegistry } from "./rule-set-registry.js";
-export { loadPublishedInfectiousRoutingVersion } from "./published-content-api.js";
+export {
+  loadPublishedInfectiousRoutingVersion,
+  loadPublishedRoutingVersion,
+} from "./published-content-api.js";
 export type { PublishedRoutingVersion } from "./published-content-api.js";
 export {
   analyzeRoutingRuleSetAgainstQuestionnaire,
@@ -27,7 +30,10 @@ export {
   unansweredRequiredRoutingQuestions,
   visibleRoutingQuestions,
 } from "./questionnaire-runtime.js";
-export { validateInfectiousRuleSetForEditor } from "./infectious-editor-validation.js";
+export {
+  validateInfectiousRuleSetForEditor,
+  validateRoutingRuleSetForEditor,
+} from "./infectious-editor-validation.js";
 export {
   captureRoutingControlCaseExpectation,
   checkRoutingControlCase,
@@ -35,11 +41,20 @@ export {
   suggestRoutingControlCases,
   validateInfectiousControlCases,
   validateInfectiousPublicationReadiness,
+  validateRoutingControlCases,
+  validateRoutingPublicationReadiness,
 } from "./control-cases.js";
 export type { RoutingControlCaseCheck } from "./control-cases.js";
-export { hydrateLegacyInfectiousQuestions } from "./infectious-question-migration.js";
+export {
+  hydrateLegacyInfectiousQuestions,
+  hydrateLegacyRoutingQuestions,
+} from "./infectious-question-migration.js";
 export { compareRoutingVersions } from "./version-diff.js";
 export { compareRoutingBehavior } from "./behavior-diff.js";
+export {
+  prepareRoutingEvaluationState,
+  routingDerivedFieldIds,
+} from "./evaluation-state.js";
 export type {
   RoutingVersionChange,
   RoutingVersionChangeCategory,

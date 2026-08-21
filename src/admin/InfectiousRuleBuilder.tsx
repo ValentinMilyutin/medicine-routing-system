@@ -198,7 +198,7 @@ function fieldSpecs(
     },
   ];
   if (!questions) return defaults;
-  return questions.map((question) => {
+  const configured = questions.map((question) => {
     const existing = defaults.find((spec) => spec.id === question.id);
     const configuredValues = (question.options ?? []).map((option) => ({
       value: option.value,
@@ -214,6 +214,9 @@ function fieldSpecs(
       multiple: question.kind === "multiple_choice",
     };
   });
+  return ruleSet.profileId === "oncology"
+    ? [...configured, { id: "always", label: "Всегда (служебное условие)", values: [{ value: true, label: "Да" }] }]
+    : configured;
 }
 
 function firstValue(spec: FieldSpec | undefined): RoutingJsonPrimitive {
