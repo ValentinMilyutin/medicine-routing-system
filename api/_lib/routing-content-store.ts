@@ -5,6 +5,7 @@ import {
   assertRoutingContentDocument,
   assertRoutingRuleSetV1,
   createRoutingContentDraft,
+  hydrateLegacyInfectiousQuestions,
   routingContentDocuments,
   routingRuleSetRegistry,
   submitRoutingContentForReview,
@@ -24,6 +25,8 @@ export type StoredRoutingVersionSummary = {
   contentVersion: string;
   status: RoutingProfileContentDocument["status"];
   revision: number;
+  basedOnVersionId: string | null;
+  basedOnContentVersion: string | null;
   questionCount: number;
   branchCount: number;
   sourceCount: number;
@@ -32,6 +35,15 @@ export type StoredRoutingVersionSummary = {
 };
 
 export type StoredRoutingVersion = StoredRoutingVersionSummary & {
+  document: RoutingProfileContentDocument;
+  ruleSet: RoutingRuleSetV1;
+};
+
+export type EffectiveRoutingVersion = {
+  kind: "approved" | "bundled";
+  id: string;
+  profileId: RoutingProfileId;
+  contentVersion: string;
   document: RoutingProfileContentDocument;
   ruleSet: RoutingRuleSetV1;
 };
@@ -79,6 +91,14 @@ function summaryFromRow(row: DatabaseRow): StoredRoutingVersionSummary {
     contentVersion: String(row.content_version),
     status: String(row.status) as RoutingProfileContentDocument["status"],
     revision: numberValue(row.revision, "revision"),
+    basedOnVersionId:
+      row.based_on_version_id === null || row.based_on_version_id === undefined
+        ? null
+        : String(row.based_on_version_id),
+    basedOnContentVersion:
+      typeof row.based_on_content_version === "string"
+        ? row.based_on_content_version
+        : null,
     questionCount: numberValue(row.question_count, "question_count"),
     branchCount: numberValue(row.branch_count, "branch_count"),
     sourceCount: numberValue(row.source_count, "source_count"),
@@ -102,21 +122,29 @@ function parseBundle(
       reason instanceof Error ? reason.message : "Некорректное содержимое версии.",
     );
   }
-  if (document.execution.kind !== "rules_v1") {
+  const normalizedDocument = hydrateLegacyInfectiousQuestions(document, ruleSet);
+  try {
+    assertRoutingContentDocument(normalizedDocument);
+  } catch (reason) {
+    throw new RoutingContentInputError(
+      reason instanceof Error ? reason.message : "Некорректные вопросы версии.",
+    );
+  }
+  if (normalizedDocument.execution.kind !== "rules_v1") {
     throw new RoutingContentInputError("Редактор поддерживает только rules_v1.");
   }
   if (
-    document.profileId !== ruleSet.profileId ||
-    document.execution.ruleSetId !== ruleSet.id
+    normalizedDocument.profileId !== ruleSet.profileId ||
+    normalizedDocument.execution.ruleSetId !== ruleSet.id
   ) {
     throw new RoutingContentInputError(
       "Документ и набор правил относятся к разным профилям.",
     );
   }
-  if (document.profileId === "infectious") {
+  if (normalizedDocument.profileId === "infectious") {
     const issues = validateInfectiousRuleSetForEditor(
       ruleSet,
-      document.questions,
+      normalizedDocument.questions,
     );
     if (issues.length > 0) {
       throw new RoutingContentInputError(
@@ -126,7 +154,7 @@ function parseBundle(
       );
     }
   }
-  return { document, ruleSet };
+  return { document: normalizedDocument, ruleSet };
 }
 
 function versionFromRow(row: DatabaseRow): StoredRoutingVersion {
@@ -144,6 +172,8 @@ const VERSION_COLUMNS = `
   content_version,
   status,
   revision,
+  based_on_version_id,
+  based_on_content_version,
   jsonb_array_length(document->'questions') AS question_count,
   jsonb_array_length(document->'branches') AS branch_count,
   jsonb_array_length(document->'sources') AS source_count,
@@ -193,6 +223,33 @@ export async function getPublishedRoutingVersion(
   return rows[0] ? versionFromRow(rows[0] as DatabaseRow) : null;
 }
 
+export async function getEffectiveRoutingVersion(
+  profileIdValue: unknown,
+): Promise<EffectiveRoutingVersion> {
+  const profileId = routingProfileId(profileIdValue);
+  const published = await getPublishedRoutingVersion(profileId);
+  if (published) {
+    return {
+      kind: "approved",
+      id: published.id,
+      profileId,
+      contentVersion: published.contentVersion,
+      document: published.document,
+      ruleSet: published.ruleSet,
+    };
+  }
+  const baseline = bundledVersion(profileId);
+  const normalized = parseBundle(baseline.document, baseline.ruleSet);
+  return {
+    kind: "bundled",
+    id: `bundled:${profileId}`,
+    profileId,
+    contentVersion: normalized.document.contentVersion,
+    document: normalized.document,
+    ruleSet: normalized.ruleSet,
+  };
+}
+
 function bundledVersion(profileId: RoutingProfileId): {
   document: RoutingProfileContentDocument;
   ruleSet: RoutingRuleSetV1;
@@ -222,10 +279,10 @@ export async function createStoredRoutingDraft(input: {
   const profileId = routingProfileId(input.profileId);
   const sql = database();
   const previousRows = await sql.query(
-    `SELECT document, rule_set
+    `SELECT id::text, document, rule_set
        FROM routing_content_versions
       WHERE profile_id = $1
-      ORDER BY updated_at DESC
+        AND status = 'approved'
       LIMIT 1`,
     [profileId],
   );
@@ -251,8 +308,9 @@ export async function createStoredRoutingDraft(input: {
   const rows = await sql.query(
     `WITH inserted AS (
        INSERT INTO routing_content_versions (
-         profile_id, content_version, status, document, rule_set
-       ) VALUES ($1, $2, 'draft', $3::jsonb, $4::jsonb)
+         profile_id, content_version, status, document, rule_set,
+         based_on_version_id, based_on_content_version
+       ) VALUES ($1, $2, 'draft', $3::jsonb, $4::jsonb, $5, $6)
        RETURNING *
      ), revision AS (
        INSERT INTO routing_content_revisions (
@@ -268,7 +326,14 @@ export async function createStoredRoutingDraft(input: {
          FROM inserted
      )
      SELECT ${VERSION_COLUMNS}, document, rule_set FROM inserted`,
-    [profileId, document.contentVersion, JSON.stringify(document), JSON.stringify(ruleSet)],
+    [
+      profileId,
+      document.contentVersion,
+      JSON.stringify(document),
+      JSON.stringify(ruleSet),
+      previous ? String(previous.id) : null,
+      validatedBaseline.document.contentVersion,
+    ],
   );
   return versionFromRow(rows[0] as DatabaseRow);
 }

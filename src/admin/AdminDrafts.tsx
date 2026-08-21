@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  compareRoutingVersions,
+  hydrateLegacyInfectiousQuestions,
   publicationBlockers,
   validateInfectiousRuleSetForEditor,
   validateRoutingContentDocument,
@@ -7,20 +9,23 @@ import {
   type RoutingProfileId,
   type RoutingRuleSetV1,
 } from "../routing";
-import { infectiousRoutingContent } from "../routing/content-manifests";
 import {
   approveAdminRoutingVersion,
   archiveAdminRoutingVersion,
   createAdminRoutingDraft,
+  getAdminEffectiveRoutingVersion,
   getAdminRoutingVersion,
   listAdminRoutingVersions,
   saveAdminRoutingDraft,
   submitAdminRoutingVersionForReview,
   type StoredRoutingVersion,
   type StoredRoutingVersionSummary,
+  type EffectiveRoutingVersion,
 } from "./admin-content-api";
 import InfectiousRuleBuilder from "./InfectiousRuleBuilder";
 import InfectiousQuestionnaireBuilder from "./InfectiousQuestionnaireBuilder";
+import InfectiousVersionPreview from "./InfectiousVersionPreview";
+import RoutingVersionComparison from "./RoutingVersionComparison";
 
 const STATUS_LABELS = {
   draft: "Черновик",
@@ -32,40 +37,9 @@ const STATUS_LABELS = {
 function withDynamicInfectiousQuestions(
   version: StoredRoutingVersion,
 ): StoredRoutingVersion {
-  if (version.profileId !== "infectious") return version;
-  const defaults = new Map(
-    infectiousRoutingContent.questions.map((question) => [question.id, question]),
-  );
-  const optionCatalogs: Record<string, string[]> = {
-    infectionGroup: ["groupLabels"],
-    lifeThreats: ["lifeThreatLabels"],
-    admissionCriteria: ["admissionGeneral", "admissionRespiratory"],
-  };
   return {
     ...version,
-    document: {
-      ...version.document,
-      questions: version.document.questions.map((question) => {
-        const fallback = defaults.get(question.id);
-        if (!fallback || question.options !== undefined) return question;
-        return {
-          ...fallback,
-          ...question,
-          helpText: question.helpText ?? fallback.helpText,
-          placeholder: question.placeholder ?? fallback.placeholder,
-          visibility: question.visibility ?? fallback.visibility,
-          options: fallback.options?.map((option) => {
-            const label = (optionCatalogs[question.id] ?? [])
-              .map(
-                (catalogId) =>
-                  version.ruleSet.catalogs[catalogId]?.[String(option.value)],
-              )
-              .find((value): value is string => typeof value === "string");
-            return label ? { ...option, label } : option;
-          }),
-        };
-      }),
-    },
+    document: hydrateLegacyInfectiousQuestions(version.document, version.ruleSet),
   };
 }
 
@@ -76,12 +50,31 @@ function suggestedNextVersion(current: string): string {
     : "0.4.0-draft.1";
 }
 
+function suggestedAvailableVersion(
+  current: string,
+  versions: readonly StoredRoutingVersionSummary[],
+): string {
+  const used = new Set(versions.map((version) => version.contentVersion));
+  let candidate = suggestedNextVersion(current);
+  let attempts = 0;
+  while (used.has(candidate) && attempts < 100) {
+    candidate = suggestedNextVersion(candidate);
+    attempts += 1;
+  }
+  return candidate;
+}
+
 export default function AdminDrafts(props: {
   profileId: RoutingProfileId;
   currentVersion: string;
 }) {
   const [opened, setOpened] = useState(false);
   const [versions, setVersions] = useState<StoredRoutingVersionSummary[]>([]);
+  const [versionDetails, setVersionDetails] = useState<
+    Record<string, StoredRoutingVersion>
+  >({});
+  const [effectiveVersion, setEffectiveVersion] =
+    useState<EffectiveRoutingVersion | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -93,10 +86,25 @@ export default function AdminDrafts(props: {
   const [ruleJson, setRuleJson] = useState("");
   const [editableRuleSet, setEditableRuleSet] = useState<RoutingRuleSetV1 | null>(null);
   const [decisionDocument, setDecisionDocument] = useState("");
+  const [previewCurrent, setPreviewCurrent] = useState(false);
+  const [previewSelected, setPreviewSelected] = useState(false);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const workingId = working?.id;
 
   const profileVersions = useMemo(
     () => versions.filter((version) => version.profileId === props.profileId),
     [props.profileId, versions],
+  );
+  const candidateVersions = useMemo(
+    () =>
+      profileVersions.filter(
+        (version) => version.status === "draft" || version.status === "in_review",
+      ),
+    [profileVersions],
+  );
+  const historyVersions = useMemo(
+    () => profileVersions.filter((version) => version.status === "archived"),
+    [profileVersions],
   );
 
   useEffect(() => {
@@ -106,16 +114,62 @@ export default function AdminDrafts(props: {
     setRuleJson("");
     setEditableRuleSet(null);
     setDecisionDocument("");
+    setEffectiveVersion(null);
+    setVersionDetails({});
+    setPreviewCurrent(false);
+    setPreviewSelected(false);
     setError("");
     setNotice("");
   }, [props.currentVersion, props.profileId]);
+
+  useEffect(() => {
+    if (
+      workingId &&
+      typeof editorRef.current?.scrollIntoView === "function"
+    ) {
+      editorRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [workingId]);
 
   async function loadVersions() {
     setOpened(true);
     setLoading(true);
     setError("");
     try {
-      setVersions(await listAdminRoutingVersions());
+      const [allVersions, effective] = await Promise.all([
+        listAdminRoutingVersions(),
+        getAdminEffectiveRoutingVersion(props.profileId),
+      ]);
+      const profileItems = allVersions.filter(
+        (version) => version.profileId === props.profileId,
+      );
+      const detailResults = await Promise.allSettled(
+        profileItems.map((version) => getAdminRoutingVersion(version.id)),
+      );
+      const details: Record<string, StoredRoutingVersion> = {};
+      detailResults.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          const hydrated = withDynamicInfectiousQuestions(result.value);
+          details[hydrated.id] = hydrated;
+        } else {
+          console.error(
+            `Не удалось подготовить версию ${profileItems[index]?.id ?? "?"}`,
+            result.reason,
+          );
+        }
+      });
+      setVersions(allVersions);
+      setEffectiveVersion({
+        ...effective,
+        document: hydrateLegacyInfectiousQuestions(
+          effective.document,
+          effective.ruleSet,
+        ),
+      });
+      setVersionDetails(details);
+      setContentVersion(
+        suggestedAvailableVersion(effective.contentVersion, profileItems),
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить версии.");
     } finally {
@@ -131,6 +185,7 @@ export default function AdminDrafts(props: {
     setNotice("");
     setError("");
     setDecisionDocument(editableVersion.document.approval?.decisionDocument ?? "");
+    setPreviewSelected(false);
   }
 
   function replaceVersion(version: StoredRoutingVersion) {
@@ -138,6 +193,7 @@ export default function AdminDrafts(props: {
       version,
       ...current.filter((item) => item.id !== version.id),
     ]);
+    setVersionDetails((current) => ({ ...current, [version.id]: version }));
     openEditor(version);
   }
 
@@ -152,7 +208,7 @@ export default function AdminDrafts(props: {
     setLoading(true);
     setError("");
     try {
-      openEditor(await getAdminRoutingVersion(id));
+      openEditor(versionDetails[id] ?? (await getAdminRoutingVersion(id)));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось открыть черновик.");
     } finally {
@@ -172,6 +228,7 @@ export default function AdminDrafts(props: {
         changeSummary: changeSummary.trim(),
       });
       setVersions((current) => [version, ...current]);
+      setVersionDetails((current) => ({ ...current, [version.id]: version }));
       openEditor(version);
       setNotice("Черновик создан. Исходная опубликованная логика не изменена.");
     } catch (reason) {
@@ -196,6 +253,7 @@ export default function AdminDrafts(props: {
         ruleSet: ruleSet as StoredRoutingVersion["ruleSet"],
       });
       openEditor(saved);
+      setVersionDetails((current) => ({ ...current, [saved.id]: saved }));
       setVersions((current) => [saved, ...current.filter((item) => item.id !== saved.id)]);
       setNotice(`Сохранена ревизия ${saved.revision}.`);
     } catch (reason) {
@@ -250,6 +308,7 @@ export default function AdminDrafts(props: {
         decisionDocument.trim(),
       );
       replaceVersion(approved);
+      await loadVersions();
       setNotice(
         "Версия опубликована. Предыдущая опубликованная версия автоматически перенесена в архив.",
       );
@@ -268,6 +327,7 @@ export default function AdminDrafts(props: {
     try {
       const archived = await archiveAdminRoutingVersion(working);
       replaceVersion(archived);
+      await loadVersions();
       setNotice("Версия перенесена в архив и больше не выдаётся публичному профилю.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось архивировать версию.");
@@ -312,7 +372,7 @@ export default function AdminDrafts(props: {
   return (
     <div className="mt-5 space-y-4 border-t border-neutral-200 pt-5">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold">Версии в Neon</h3>
+        <h3 className="font-semibold">Управление версиями</h3>
         <button
           type="button"
           onClick={loadVersions}
@@ -334,8 +394,48 @@ export default function AdminDrafts(props: {
         </div>
       )}
 
+      {effectiveVersion ? (
+        <div className="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                Текущая рабочая версия
+              </div>
+              <div className="mt-1 font-semibold">{effectiveVersion.contentVersion}</div>
+              <div className="mt-1 text-xs text-emerald-900">
+                {effectiveVersion.kind === "approved"
+                  ? "Утверждена и выдаётся публичному профилю."
+                  : "Встроенная резервная версия. Ещё не утверждена через административный контур."}
+              </div>
+            </div>
+            {props.profileId === "infectious" ? (
+              <button
+                type="button"
+                onClick={() => setPreviewCurrent((current) => !current)}
+                className="rounded-xl border border-emerald-400 bg-white px-3 py-2 text-xs font-medium text-emerald-900"
+              >
+                {previewCurrent ? "Закрыть предпросмотр" : "Посмотреть текущую"}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : loading ? (
+        <div className="text-sm text-neutral-500">Загрузка текущей версии…</div>
+      ) : null}
+
+      {previewCurrent && effectiveVersion && props.profileId === "infectious" ? (
+        <InfectiousVersionPreview
+          key={effectiveVersion.id}
+          document={effectiveVersion.document}
+          ruleSet={effectiveVersion.ruleSet}
+        />
+      ) : null}
+
       <div className="rounded-2xl border border-neutral-200 p-4">
-        <div className="font-medium">Создать отдельный черновик</div>
+        <div className="font-medium">Создать кандидат на изменение</div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Новый черновик всегда создаётся на основе текущей рабочей версии.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <span className="mb-1 block text-neutral-600">Новая версия</span>
@@ -365,12 +465,77 @@ export default function AdminDrafts(props: {
       </div>
 
       <div>
-        <div className="text-sm font-medium">Сохранённые версии профиля</div>
-        {profileVersions.length === 0 ? (
-          <p className="mt-2 text-sm text-neutral-500">В базе пока нет версий этого профиля.</p>
+        <div className="text-sm font-medium">Кандидаты</div>
+        <p className="mt-1 text-xs text-neutral-500">
+          Каждый вариант ниже сравнивается только с текущей рабочей версией.
+        </p>
+        {candidateVersions.length === 0 ? (
+          <p className="mt-2 text-sm text-neutral-500">Активных черновиков пока нет.</p>
         ) : (
           <div className="mt-2 space-y-2">
-            {profileVersions.map((version) => (
+            {candidateVersions.map((version) => {
+              const detail = versionDetails[version.id];
+              const diff =
+                detail && effectiveVersion
+                  ? compareRoutingVersions(
+                      effectiveVersion.document,
+                      effectiveVersion.ruleSet,
+                      detail.document,
+                      detail.ruleSet,
+                    )
+                  : null;
+              const stale =
+                effectiveVersion &&
+                version.basedOnContentVersion &&
+                version.basedOnContentVersion !== effectiveVersion.contentVersion;
+              return (
+                <button
+                  key={version.id}
+                  type="button"
+                  onClick={() => loadVersion(version.id)}
+                  className={`w-full rounded-2xl border p-3 text-left hover:bg-neutral-50 ${
+                    working?.id === version.id
+                      ? "border-violet-500 bg-violet-50"
+                      : "border-neutral-200"
+                  }`}
+                >
+                  <span className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="block text-sm font-medium">{version.contentVersion}</span>
+                      <span className="mt-1 block text-xs text-neutral-500">
+                        {STATUS_LABELS[version.status]} · ревизия {version.revision} · основа{" "}
+                        {version.basedOnContentVersion ?? props.currentVersion}
+                      </span>
+                      {stale ? (
+                        <span className="mt-1 block text-xs font-medium text-amber-800">
+                          Основан на прежней рабочей версии
+                        </span>
+                      ) : null}
+                      {diff ? (
+                        <span className="mt-2 block text-xs text-neutral-700">
+                          Логика: {diff.counts.routing} · вопросы: {diff.counts.questions} ·
+                          источники: {diff.counts.sources}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-xs font-medium text-blue-700">
+                      Выбрать и посмотреть
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {historyVersions.length > 0 ? (
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">
+            История заменённых версий ({historyVersions.length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {historyVersions.map((version) => (
               <button
                 key={version.id}
                 type="button"
@@ -380,18 +545,18 @@ export default function AdminDrafts(props: {
                 <span>
                   <span className="block text-sm font-medium">{version.contentVersion}</span>
                   <span className="text-xs text-neutral-500">
-                    {STATUS_LABELS[version.status]} · ревизия {version.revision}
+                    Архив · ревизия {version.revision}
                   </span>
                 </span>
-                <span className="text-xs text-blue-700">Открыть</span>
+                <span className="text-xs text-blue-700">Посмотреть</span>
               </button>
             ))}
           </div>
-        )}
-      </div>
+        </details>
+      ) : null}
 
       {working && (
-        <div className="space-y-4 rounded-2xl border-2 border-neutral-300 p-4">
+        <div ref={editorRef} className="scroll-mt-4 space-y-4 rounded-2xl border-2 border-neutral-300 p-4">
           <div>
             <div className="text-xs uppercase tracking-wide text-neutral-500">
               {working.status === "draft"
@@ -401,7 +566,34 @@ export default function AdminDrafts(props: {
             <div className="font-semibold">
               {working.contentVersion} · ревизия {working.revision}
             </div>
+            <div className="mt-1 text-xs text-neutral-500">
+              Основа: {working.basedOnContentVersion ?? props.currentVersion}
+            </div>
           </div>
+
+          {effectiveVersion ? (
+            <RoutingVersionComparison current={effectiveVersion} candidate={working} />
+          ) : null}
+
+          {working.profileId === "infectious" ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewSelected((current) => !current)}
+                className="rounded-xl border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-800"
+              >
+                {previewSelected ? "Закрыть предпросмотр" : "Посмотреть как опросник"}
+              </button>
+            </div>
+          ) : null}
+
+          {previewSelected && working.profileId === "infectious" && editableRuleSet ? (
+            <InfectiousVersionPreview
+              key={`${working.id}-${working.revision}`}
+              document={working.document}
+              ruleSet={editableRuleSet}
+            />
+          ) : null}
 
           {working.status !== "draft" ? (
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">

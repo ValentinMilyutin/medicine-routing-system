@@ -11,6 +11,8 @@ export type StoredRoutingVersionSummary = {
   contentVersion: string;
   status: RoutingContentStatus;
   revision: number;
+  basedOnVersionId: string | null;
+  basedOnContentVersion: string | null;
   questionCount: number;
   branchCount: number;
   sourceCount: number;
@@ -19,6 +21,15 @@ export type StoredRoutingVersionSummary = {
 };
 
 export type StoredRoutingVersion = StoredRoutingVersionSummary & {
+  document: RoutingProfileContentDocument;
+  ruleSet: RoutingRuleSetV1;
+};
+
+export type EffectiveRoutingVersion = {
+  kind: "approved" | "bundled";
+  id: string;
+  profileId: RoutingProfileId;
+  contentVersion: string;
   document: RoutingProfileContentDocument;
   ruleSet: RoutingRuleSetV1;
 };
@@ -72,6 +83,20 @@ export async function getAdminRoutingVersion(
     headers: { Accept: "application/json" },
   });
   const body = await bodyOrError<{ version: StoredRoutingVersion }>(response);
+  return body.version;
+}
+
+export async function getAdminEffectiveRoutingVersion(
+  profileId: RoutingProfileId,
+): Promise<EffectiveRoutingVersion> {
+  const response = await fetch(
+    `/api/admin/content?effectiveProfileId=${encodeURIComponent(profileId)}`,
+    {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    },
+  );
+  const body = await bodyOrError<{ version: EffectiveRoutingVersion }>(response);
   return body.version;
 }
 

@@ -28,6 +28,13 @@ export {
   visibleRoutingQuestions,
 } from "./questionnaire-runtime.js";
 export { validateInfectiousRuleSetForEditor } from "./infectious-editor-validation.js";
+export { hydrateLegacyInfectiousQuestions } from "./infectious-question-migration.js";
+export { compareRoutingVersions } from "./version-diff.js";
+export type {
+  RoutingVersionChange,
+  RoutingVersionChangeCategory,
+  RoutingVersionDiff,
+} from "./version-diff.js";
 export {
   assertRoutingRuleSetV1,
   evaluateRoutingRuleSetV1,

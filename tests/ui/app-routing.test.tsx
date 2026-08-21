@@ -171,6 +171,8 @@ describe("пользовательские сценарии приложения
       contentVersion: "0.4.0-draft.1",
       status: "draft",
       revision: 1,
+      basedOnVersionId: null,
+      basedOnContentVersion: baseDocument.contentVersion,
       questionCount: baseDocument.questions.length,
       branchCount: baseDocument.branches.length,
       sourceCount: baseDocument.sources.length,
@@ -207,6 +209,21 @@ describe("пользовательские сценарии приложения
         }),
       )
       .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            version: {
+              kind: "bundled",
+              id: `bundled:${baseDocument.profileId}`,
+              profileId: baseDocument.profileId,
+              contentVersion: baseDocument.contentVersion,
+              document: baseDocument,
+              ruleSet,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
         new Response(JSON.stringify({ version: storedVersion }), {
           status: 201,
           headers: { "Content-Type": "application/json" },
@@ -226,7 +243,7 @@ describe("пользовательские сценарии приложения
       screen.getByRole("button", { name: "Открыть версии и черновики" }),
     );
     expect(
-      await screen.findByText("В базе пока нет версий этого профиля."),
+      await screen.findByText("Активных черновиков пока нет."),
     ).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Новая версия"));
     await user.type(screen.getByLabelText("Новая версия"), "0.4.0-draft.1");
@@ -239,7 +256,7 @@ describe("пользовательские сценарии приложения
     expect(await screen.findByText(/Редактор черновика/)).toBeInTheDocument();
     expect(screen.getAllByText(/ревизия 1/)).toHaveLength(2);
     expect(
-      JSON.parse(String(fetchMock.mock.calls[3][1]?.body)),
+      JSON.parse(String(fetchMock.mock.calls[4][1]?.body)),
     ).toMatchObject({
       action: "create_draft",
       profileId: "obgyn",

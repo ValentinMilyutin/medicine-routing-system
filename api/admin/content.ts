@@ -7,6 +7,7 @@ import {
   archiveStoredRoutingVersion,
   createStoredRoutingDraft,
   DatabaseNotConfiguredError,
+  getEffectiveRoutingVersion,
   getStoredRoutingVersion,
   listStoredRoutingVersions,
   RoutingContentInputError,
@@ -72,7 +73,14 @@ export default {
 
     try {
       if (request.method === "GET") {
-        const id = new URL(request.url).searchParams.get("id");
+        const searchParams = new URL(request.url).searchParams;
+        const effectiveProfileId = searchParams.get("effectiveProfileId");
+        if (effectiveProfileId) {
+          return json({
+            version: await getEffectiveRoutingVersion(effectiveProfileId),
+          });
+        }
+        const id = searchParams.get("id");
         if (id) {
           const version = await getStoredRoutingVersion(id);
           return version

@@ -22,6 +22,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS routing_one_approved_version_per_profile
   ON routing_content_versions (profile_id)
   WHERE status = 'approved';
 
+ALTER TABLE routing_content_versions
+  ADD COLUMN IF NOT EXISTS based_on_version_id bigint
+  REFERENCES routing_content_versions(id) ON DELETE RESTRICT;
+
+ALTER TABLE routing_content_versions
+  ADD COLUMN IF NOT EXISTS based_on_content_version text;
+
 CREATE TABLE IF NOT EXISTS routing_content_revisions (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   version_id bigint NOT NULL REFERENCES routing_content_versions(id) ON DELETE RESTRICT,

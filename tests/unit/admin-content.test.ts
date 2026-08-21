@@ -88,6 +88,29 @@ describe("серверное хранилище административных
     ).toThrow(/не прошёл контроль сценариев/);
   });
 
+  it("открывает старый инфекционный черновик без формальных вариантов ответа", () => {
+    const document = routingContentDocuments.find(
+      (item) => item.profileId === "infectious",
+    );
+    if (!document) throw new Error("Не найден инфекционный профиль.");
+    const legacyDocument = {
+      ...document,
+      questions: document.questions.map((question) => ({
+        ...question,
+        options: undefined,
+      })),
+    };
+
+    const parsed = routingContentStoreTestUtils.parseBundle(
+      legacyDocument,
+      routingRuleSetRegistry["infectious.v1"],
+    );
+
+    expect(parsed.document.questions.every((question) => question.options)).toBe(
+      true,
+    );
+  });
+
   it("преобразует служебную строку базы в безопасную сводку", () => {
     const summary = routingContentStoreTestUtils.summaryFromRow({
       id: "17",

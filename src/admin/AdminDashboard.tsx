@@ -3,18 +3,10 @@ import {
   publicationBlockers,
   routingContentDocuments,
   routingProfileList,
-  type RoutingContentStatus,
   type RoutingProfileId,
 } from "../routing";
 import type { AdminUser } from "./admin-api";
 import AdminDrafts from "./AdminDrafts";
-
-const STATUS_LABELS: Record<RoutingContentStatus, string> = {
-  draft: "Черновик",
-  in_review: "На проверке",
-  approved: "Утверждено",
-  archived: "В архиве",
-};
 
 export default function AdminDashboard(props: {
   user: AdminUser;
@@ -105,7 +97,7 @@ export default function AdminDashboard(props: {
                       <div
                         className={`mt-1 text-xs ${active ? "text-neutral-300" : "text-neutral-500"}`}
                       >
-                        Версия {profile.contentVersion} · {STATUS_LABELS[profile.status]}
+                        Встроенная основа {profile.contentVersion}
                       </div>
                     </div>
                     <span
@@ -131,13 +123,13 @@ export default function AdminDashboard(props: {
               <h2 className="text-xl font-bold">{selectedSummary.title}</h2>
             </div>
             <span className="rounded-full bg-neutral-100 px-3 py-1 text-sm">
-              {STATUS_LABELS[document.status]}
+              Встроенная основа
             </span>
           </div>
 
           <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              ["Версия", document.contentVersion],
+              ["Версия основы", document.contentVersion],
               ["Вопросы", document.questions.length],
               ["Ветки", document.branches.length],
               ["Источники", document.sources.length],
@@ -187,9 +179,9 @@ export default function AdminDashboard(props: {
           </div>
 
           <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-            Любые изменения сохраняются отдельным черновиком в Neon. Действующая
-            публичная маршрутизация не меняется напрямую и не зависит от
-            незавершённых административных правок.
+            Ниже показывается фактическая текущая рабочая версия и все кандидаты
+            относительно неё. Встроенная основа остаётся резервом до первой
+            утверждённой публикации из Neon.
           </div>
 
           <AdminDrafts
