@@ -9,6 +9,7 @@ import {
 } from "./routing";
 import { oncologyRoutingContent } from "./routing/content-manifests";
 import { evaluateOncologyRoutingRuleSet } from "./routing/oncology";
+import { useRoutingTelemetry } from "./operations/use-routing-telemetry";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -49,6 +50,7 @@ export default function OncologyDynamicRoutingWizard() {
   const destination = result && isRecord(result.locationPrimaryHospital) ? result.locationPrimaryHospital : null;
   const ems = result && isRecord(result.ems) ? result.ems : null;
   const transportRequired = result ? !["plan_onco_referral", "no_hospitalization"].includes(text(result.route)) : false;
+  useRoutingTelemetry({ profileId: "oncology", contentVersion: activeDocument.contentVersion, resultId: result ? text(result.routeTitle) || text(result.route) : undefined, ruleId: evaluation?.ruleId });
 
   return <div className="min-h-screen bg-neutral-50 p-4"><div className="mx-auto max-w-6xl space-y-4">
     <header className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">

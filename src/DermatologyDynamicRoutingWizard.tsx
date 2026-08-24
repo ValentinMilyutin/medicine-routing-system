@@ -12,6 +12,7 @@ import {
   evaluateDermatologyRoutingRuleSet,
   type Facility,
 } from "./routing/dermatology";
+import { useRoutingTelemetry } from "./operations/use-routing-telemetry";
 
 function Section(props: { title: string; children: ReactNode }) {
   return <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm"><h2 className="mb-4 text-lg font-bold">{props.title}</h2>{props.children}</section>;
@@ -48,6 +49,7 @@ export default function DermatologyDynamicRoutingWizard() {
     () => missing.length === 0 ? evaluateDermatologyRoutingRuleSet(activeRuleSet, state) : null,
     [activeRuleSet, missing.length, state],
   );
+  useRoutingTelemetry({ profileId: "dermatology", contentVersion: activeDocument.contentVersion, resultId: result?.title });
 
   return (
     <div className="min-h-screen bg-neutral-50 p-4">

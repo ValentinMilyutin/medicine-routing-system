@@ -1,6 +1,16 @@
-import { lazy, Suspense, type ComponentType, useState } from "react";
+import { type ComponentType, useEffect, useState } from "react";
 import ProfileSelect from "./ProfileSelect";
-import type { RoutingProfileId } from "./routing";
+import {
+  routingContentDocuments,
+  type RoutingProfileId,
+} from "./routing";
+import FeedbackWidget from "./operations/FeedbackWidget";
+import PublicDocumentsPanel from "./operations/PublicDocumentsPanel";
+import { recordUsageEvent } from "./operations/operations-api";
+import {
+  clearPublicRoutingContext,
+  setPublicRoutingContext,
+} from "./operations/routing-context";
 
 import OncologyDynamicRoutingWizard from "./OncologyDynamicRoutingWizard";
 import ObstetricsDynamicRoutingWizard from "./ObstetricsDynamicRoutingWizard";
@@ -8,8 +18,7 @@ import BSKSMPRoutingWizard from "./BSKDynamicRoutingWizard";
 import DermatovenerologySMPRoutingWizard from "./DermatologyDynamicRoutingWizard";
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
 import RoadAccidentSMPRoutingWizard from "./RoadAccidentDynamicRoutingWizard";
-
-const AdminApp = lazy(() => import("./admin/AdminApp"));
+import AdminApp from "./admin/AdminApp";
 
 const PROFILE_COMPONENTS: Record<RoutingProfileId, ComponentType> = {
   obgyn: ObstetricsDynamicRoutingWizard,
@@ -36,39 +45,64 @@ function BackBar(props: { onBack: () => void }) {
   );
 }
 
+function PublicProfileView(props: {
+  profile: RoutingProfileId;
+  onBack: () => void;
+}) {
+  const ProfileComponent = PROFILE_COMPONENTS[props.profile];
+  const fallbackVersion = routingContentDocuments.find(
+    (document) => document.profileId === props.profile,
+  )!.contentVersion;
+
+  useEffect(() => {
+    setPublicRoutingContext({
+      profileId: props.profile,
+      contentVersion: fallbackVersion,
+    });
+    recordUsageEvent({
+      profileId: props.profile,
+      contentVersion: fallbackVersion,
+      eventType: "profile_opened",
+    });
+  }, [fallbackVersion, props.profile]);
+
+  return (
+    <>
+      <BackBar onBack={props.onBack} />
+      <ProfileComponent />
+      <PublicDocumentsPanel
+        profileId={props.profile}
+        contentVersion={fallbackVersion}
+      />
+      <FeedbackWidget
+        profileId={props.profile}
+        fallbackVersion={fallbackVersion}
+      />
+    </>
+  );
+}
+
 export default function App() {
   const [profile, setProfile] = useState<RoutingProfileId | null>(null);
-  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(
+    () => new URLSearchParams(window.location.search).get("admin") === "1",
+  );
 
   if (adminOpen) {
-    return (
-      <Suspense
-        fallback={
-          <div className="flex min-h-screen items-center justify-center bg-neutral-50 p-4 text-sm text-neutral-600">
-            Загрузка административного контура…
-          </div>
-        }
-      >
-        <AdminApp onBack={() => setAdminOpen(false)} />
-      </Suspense>
-    );
+    return <AdminApp onBack={() => { clearPublicRoutingContext(); setAdminOpen(false); }} />;
   }
 
   if (!profile) {
     return (
-      <ProfileSelect
-        onSelect={setProfile}
-        onAdmin={() => setAdminOpen(true)}
-      />
+      <>
+        <ProfileSelect
+          onSelect={setProfile}
+          onAdmin={() => setAdminOpen(true)}
+        />
+        <FeedbackWidget />
+      </>
     );
   }
 
-  const ProfileComponent = PROFILE_COMPONENTS[profile];
-
-  return (
-    <>
-      <BackBar onBack={() => setProfile(null)} />
-      <ProfileComponent />
-    </>
-  );
+  return <PublicProfileView profile={profile} onBack={() => { clearPublicRoutingContext(); setProfile(null); }} />;
 }

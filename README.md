@@ -32,6 +32,15 @@ npm run db:check
 
 Административные черновики и история ревизий хранятся в Neon Postgres. Схема применяется командой `npm run db:migrate`; проверка подключения только на чтение — `npm run db:check`.
 
+В административном контуре также доступны:
+
+- реестр нормативных документов с метками, статусами, контрольными суммами и привязкой к профилю/ветке/источнику;
+- загрузка PDF/DOCX в Vercel Blob (до 25 МБ) после подключения `BLOB_READ_WRITE_TOKEN`;
+- обращения врачей и список адресатов уведомлений;
+- обезличенная агрегированная статистика использования без ответов опросника и данных пациента.
+
+Необязательные интеграции описаны в `.env.example`. Без Resend обращения всё равно сохраняются в Neon, но письма не отправляются. Без Vercel Blob работают карточки и официальные ссылки документов, но загрузка сохранённой копии недоступна.
+
 ## Архитектура
 
 - `src/routing` — медицинские правила, справочники и единый реестр профилей без зависимости от React.
@@ -43,4 +52,4 @@ npm run db:check
 - `docs/testing` — инвентаризация и вопросы к кураторам.
 - `docs/architecture` — границы доменного слоя.
 
-Ключевые документы: `docs/testing/current-routing-inventory.md`, `docs/testing/minzdrav-review-questions.md`, `docs/architecture/routing-domain.md`, `docs/architecture/versioned-routing-content.md`, `docs/architecture/rules-v1.md`, `docs/architecture/admin-access.md` и `docs/architecture/admin-storage.md`.
+Ключевые документы: `docs/testing/current-routing-inventory.md`, `docs/testing/minzdrav-review-questions.md`, `docs/testing/acceptance-test-program.md`, `docs/testing/acceptance-test-protocol.md`, `docs/architecture/routing-domain.md`, `docs/architecture/versioned-routing-content.md`, `docs/architecture/rules-v1.md`, `docs/architecture/admin-access.md`, `docs/architecture/admin-storage.md` и `docs/architecture/operations-contour.md`.

@@ -10,12 +10,14 @@ export default defineConfig({
     channel: "chrome",
     trace: "retain-on-failure",
   },
-  webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: process.env.PLAYWRIGHT_EXTERNAL_SERVER
+    ? undefined
+    : {
+        command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173",
+        url: "http://127.0.0.1:4173",
+        reuseExistingServer: true,
+        timeout: 120_000,
+      },
   projects: [
     {
       name: "desktop-chrome",

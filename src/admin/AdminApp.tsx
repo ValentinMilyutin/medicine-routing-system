@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import AdminDashboard from "./AdminDashboard";
+import { lazy, Suspense, useEffect, useState } from "react";
 import AdminLogin from "./AdminLogin";
 import {
   getAdminSession,
@@ -11,6 +10,8 @@ type SessionState =
   | { status: "checking" }
   | { status: "anonymous"; error?: string }
   | { status: "authenticated"; user: AdminUser };
+
+const AdminDashboard = lazy(() => import("./AdminDashboard"));
 
 export default function AdminApp(props: { onBack: () => void }) {
   const [session, setSession] = useState<SessionState>({ status: "checking" });
@@ -71,7 +72,15 @@ export default function AdminApp(props: { onBack: () => void }) {
           </div>
         )}
         {session.status === "authenticated" && (
-          <AdminDashboard user={session.user} onLogout={logout} />
+          <Suspense
+            fallback={
+              <div className="rounded-3xl border border-neutral-200 bg-white p-6 text-sm text-neutral-600 shadow-sm">
+                Загрузка административного контура…
+              </div>
+            }
+          >
+            <AdminDashboard user={session.user} onLogout={logout} />
+          </Suspense>
         )}
       </div>
     </div>

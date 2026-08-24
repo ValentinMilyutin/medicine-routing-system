@@ -9,6 +9,7 @@ import {
   type RoutingQuestionnaireState,
 } from "./routing";
 import { evaluateBskRoutingRuleSet, type Facility } from "./routing/bsk";
+import { useRoutingTelemetry } from "./operations/use-routing-telemetry";
 
 function Section(props: { title: string; children: ReactNode }) {
   return <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm"><h2 className="mb-4 text-lg font-bold">{props.title}</h2>{props.children}</section>;
@@ -36,6 +37,7 @@ export default function BSKDynamicRoutingWizard() {
   }, []);
   const missing = unansweredRequiredRoutingQuestions(activeDocument.questions, state);
   const result = useMemo(() => missing.length === 0 ? evaluateBskRoutingRuleSet(activeRuleSet, state) : null, [activeRuleSet, missing.length, state]);
+  useRoutingTelemetry({ profileId: "bsk", contentVersion: activeDocument.contentVersion, resultId: result?.title });
   return (
     <div className="min-h-screen bg-neutral-50 p-4"><div className="mx-auto max-w-6xl space-y-4">
       <header className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm"><h1 className="text-2xl font-bold">БСК / ССЗ: маршрутизация пациентов для СМП</h1><p className="mt-2 text-sm text-neutral-600">Территория и клинические критерии → конкретная принимающая медицинская организация.</p><div className="mt-3 text-xs text-neutral-500">{publicationState === "published" && publishedVersion ? `Опубликованная версия ${publishedVersion.contentVersion}` : publicationState === "loading" ? "Проверка опубликованной версии…" : `Встроенная резервная версия ${activeDocument.contentVersion}`}</div></header>

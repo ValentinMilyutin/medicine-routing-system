@@ -16,6 +16,7 @@ import {
   loadPublishedInfectiousRoutingVersion,
   type PublishedRoutingVersion,
 } from "./routing/published-content-api";
+import { useRoutingTelemetry } from "./operations/use-routing-telemetry";
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
@@ -138,6 +139,7 @@ export default function InfectiousDiseasesSMPRoutingWizard() {
         : null,
     [activeRuleSet, missingQuestions.length, state],
   );
+  useRoutingTelemetry({ profileId: "infectious", contentVersion: activeDocument.contentVersion, resultId: result?.title });
 
   return (
     <div className="min-h-screen bg-neutral-50 p-4">

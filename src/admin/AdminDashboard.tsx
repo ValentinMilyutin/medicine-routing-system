@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   publicationBlockers,
   routingContentDocuments,
@@ -8,12 +8,19 @@ import {
 import type { AdminUser } from "./admin-api";
 import AdminDrafts from "./AdminDrafts";
 
+const AdminDocuments = lazy(() => import("./AdminDocuments"));
+const AdminFeedback = lazy(() => import("./AdminFeedback"));
+const AdminStats = lazy(() => import("./AdminStats"));
+
+type AdminSection = "routes" | "documents" | "feedback" | "stats";
+
 export default function AdminDashboard(props: {
   user: AdminUser;
   onLogout: () => Promise<void>;
 }) {
   const [selectedProfile, setSelectedProfile] =
     useState<RoutingProfileId>("obgyn");
+  const [section, setSection] = useState<AdminSection>("routes");
   const [logoutError, setLogoutError] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
   const document = useMemo(
@@ -70,7 +77,30 @@ export default function AdminDashboard(props: {
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      <nav aria-label="Разделы администрирования" className="flex gap-2 overflow-x-auto rounded-3xl border border-neutral-200 bg-white p-2 shadow-sm">
+        {([
+          ["routes", "Маршруты"],
+          ["documents", "Документы"],
+          ["feedback", "Обратная связь"],
+          ["stats", "Статистика"],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setSection(id)}
+            className={`whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium ${
+              section === id
+                ? "bg-neutral-900 text-white"
+                : "text-neutral-700 hover:bg-neutral-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {section === "routes" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <section className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm">
           <h2 className="px-2 text-lg font-semibold">Профили и версии</h2>
           <div className="mt-3 space-y-2">
@@ -189,7 +219,15 @@ export default function AdminDashboard(props: {
             currentVersion={document.contentVersion}
           />
         </section>
-      </div>
+        </div>
+      )}
+      {section !== "routes" && (
+        <Suspense fallback={<div className="rounded-3xl border border-neutral-200 bg-white p-5 text-sm text-neutral-600 shadow-sm">Загрузка раздела…</div>}>
+          {section === "documents" && <AdminDocuments />}
+          {section === "feedback" && <AdminFeedback />}
+          {section === "stats" && <AdminStats />}
+        </Suspense>
+      )}
     </div>
   );
 }

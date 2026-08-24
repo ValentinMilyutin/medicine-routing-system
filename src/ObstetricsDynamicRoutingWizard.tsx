@@ -9,6 +9,7 @@ import {
 } from "./routing";
 import { obstetricsRoutingContent } from "./routing/content-manifests";
 import { evaluateObstetricsRoutingRuleSet } from "./routing/obstetrics";
+import { useRoutingTelemetry } from "./operations/use-routing-telemetry";
 
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function text(value: unknown): string { return typeof value === "string" ? value : ""; }
@@ -39,6 +40,7 @@ export default function ObstetricsDynamicRoutingWizard() {
   const target = result && isRecord(result.target) ? result.target : null;
   const alternative = result && isRecord(result.alternative) ? result.alternative : null;
   const callouts = result ? strings(result.callouts) : [];
+  useRoutingTelemetry({ profileId: "obgyn", contentVersion: activeDocument.contentVersion, resultId: result ? text(result.title) || callouts[0] : undefined, ruleId: evaluation?.ruleId });
   return <div className="min-h-screen bg-neutral-50 p-4"><div className="mx-auto max-w-6xl space-y-4">
     <header className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm"><h1 className="text-2xl font-bold">Акушерство / гинекология — маршрутизация СМП</h1><p className="mt-1 text-sm text-neutral-600">Клинический сценарий, территория и перебивающий триаж → конкретная медицинская организация и адрес.</p><div className="mt-3 text-xs text-neutral-500">{publicationState === "published" && publishedVersion ? `Опубликованная версия ${publishedVersion.contentVersion}` : publicationState === "loading" ? "Проверка опубликованной версии…" : `Встроенная резервная версия ${activeDocument.contentVersion}`}</div></header>
     {activeDocument.blockingCuratorQuestionIds.length > 0 ? <div className="rounded-3xl border-2 border-violet-300 bg-violet-50 p-5 text-sm text-violet-950"><b>Вопросы для куратора:</b> {activeDocument.blockingCuratorQuestionIds.join(", ")}. Отдельная ветка ДТП внутри акушерского профиля сохранена.</div> : null}

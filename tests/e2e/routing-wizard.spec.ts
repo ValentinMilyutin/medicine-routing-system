@@ -21,7 +21,37 @@ test("главная страница показывает шесть профи
 test("полный маршрут БСК отображает принимающую организацию", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /БСК \/ ССЗ/ }).click();
-  await page.locator("select").first().selectOption("Боровичский");
+  await expect(
+    page.getByRole("heading", { name: "БСК / ССЗ: маршрутизация пациентов для СМП" }),
+  ).toBeVisible();
+  await page.getByLabel("Территория вызова").selectOption("Боровичский");
+  await page
+    .locator('[data-question-id="branch"]')
+    .getByRole("button", { name: "ОНМК / подозрение на инсульт" })
+    .click();
+  for (const questionId of [
+    "unstableVitals",
+    "fastFace",
+    "fastArm",
+    "fastSpeech",
+  ]) {
+    await page
+      .locator(`[data-question-id="${questionId}"]`)
+      .getByRole("button", { name: "Нет" })
+      .click();
+  }
+  await page
+    .locator('[data-question-id="strokeOnset"]')
+    .getByRole("button", { name: "Время начала неизвестно" })
+    .click();
+  await page
+    .locator('[data-question-id="armMovement"]')
+    .getByRole("button", { name: "Удерживает руку" })
+    .click();
+  await page
+    .locator('[data-question-id="gripStrength"]')
+    .getByRole("button", { name: "Сила сохранена" })
+    .click();
 
   await expect(
     page.getByText("Маршрутизация СМП при подозрении на ОНМК"),
@@ -39,10 +69,11 @@ test("полный маршрут БСК отображает принимающ
 test("полный экстренный дерматологический маршрут работает", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: /Дерматовенерология/ }).click();
+  await page.getByLabel("Территория вызова").selectOption("Боровичский район");
   await page
-    .getByLabel("Муниципальный район или округ")
-    .selectOption("Боровичский район");
-  await page.locator("section").nth(1).locator("button").first().click();
+    .locator('[data-question-id="condition"]')
+    .getByRole("button", { name: "Отёк Квинке" })
+    .click();
 
   await expect(
     page.getByText("Отёк Квинке: экстренная госпитализация"),
