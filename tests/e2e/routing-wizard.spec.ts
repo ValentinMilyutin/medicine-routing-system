@@ -1,9 +1,21 @@
 import { expect, test } from "@playwright/test";
 
-test("главная страница показывает шесть профилей без горизонтального переполнения", async ({
+test("страница проекта открывает систему маршрутизации", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("heading", { name: /Маршрут пациента/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /Начать маршрутизацию/ }).click();
+  await expect(
+    page.getByRole("region", { name: "Профили маршрутизации" }),
+  ).toBeVisible();
+});
+
+test("выбор профиля показывает шесть направлений без горизонтального переполнения", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?routing=1");
 
   await expect(
     page
@@ -19,7 +31,7 @@ test("главная страница показывает шесть профи
 });
 
 test("полный маршрут БСК отображает принимающую организацию", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?routing=1");
   await page.getByRole("button", { name: /БСК \/ ССЗ/ }).click();
   await expect(
     page.getByRole("heading", { name: "БСК / ССЗ: маршрутизация пациентов для СМП" }),
@@ -67,7 +79,7 @@ test("полный маршрут БСК отображает принимающ
 });
 
 test("полный экстренный дерматологический маршрут работает", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?routing=1");
   await page.getByRole("button", { name: /Дерматовенерология/ }).click();
   await page.getByLabel("Территория вызова").selectOption("Боровичский район");
   await page

@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../../src/App";
 import {
   routingContentDocuments,
@@ -9,7 +9,27 @@ import {
 } from "../../src/routing";
 
 describe("пользовательские сценарии приложения", () => {
+  beforeEach(() => window.history.replaceState({}, "", "/?routing=1"));
   afterEach(() => vi.unstubAllGlobals());
+
+  it("показывает страницу проекта и открывает маршрутизацию", async () => {
+    window.history.replaceState({}, "", "/");
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(
+      screen.getByRole("heading", {
+        name: /Маршрут пациента —по клиническим критериям/,
+      }),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /Начать маршрутизацию/ }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: /Акушерство \/ гинекология/ }),
+    ).toBeInTheDocument();
+  });
 
   it("показывает все шесть профилей", () => {
     render(<App />);

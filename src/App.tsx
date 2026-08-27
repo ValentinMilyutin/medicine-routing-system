@@ -19,6 +19,7 @@ import DermatovenerologySMPRoutingWizard from "./DermatologyDynamicRoutingWizard
 import InfectiousDiseasesSMPRoutingWizard from "./InfectiousDiseasesSMPRoutingWizard";
 import RoadAccidentSMPRoutingWizard from "./RoadAccidentDynamicRoutingWizard";
 import AdminApp from "./admin/AdminApp";
+import LandingPage from "./LandingPage";
 
 const PROFILE_COMPONENTS: Record<RoutingProfileId, ComponentType> = {
   obgyn: ObstetricsDynamicRoutingWizard,
@@ -84,12 +85,51 @@ function PublicProfileView(props: {
 
 export default function App() {
   const [profile, setProfile] = useState<RoutingProfileId | null>(null);
-  const [adminOpen, setAdminOpen] = useState(
-    () => new URLSearchParams(window.location.search).get("admin") === "1",
+  const getSurface = () => {
+    const search = new URLSearchParams(window.location.search);
+    if (search.get("admin") === "1") return "admin" as const;
+    if (search.get("routing") === "1") return "routing" as const;
+    return "landing" as const;
+  };
+  const [surface, setSurface] = useState<"landing" | "routing" | "admin">(
+    getSurface,
   );
 
-  if (adminOpen) {
-    return <AdminApp onBack={() => { clearPublicRoutingContext(); setAdminOpen(false); }} />;
+  useEffect(() => {
+    const onPopState = () => {
+      clearPublicRoutingContext();
+      setProfile(null);
+      setSurface(getSurface());
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = (nextSurface: "landing" | "routing" | "admin") => {
+    clearPublicRoutingContext();
+    setProfile(null);
+    const search =
+      nextSurface === "admin"
+        ? "?admin=1"
+        : nextSurface === "routing"
+          ? "?routing=1"
+          : window.location.pathname;
+    window.history.pushState({}, "", search);
+    setSurface(nextSurface);
+  };
+
+  if (surface === "admin") {
+    return <AdminApp onBack={() => navigate("routing")} />;
+  }
+
+  if (surface === "landing") {
+    return (
+      <LandingPage
+        onOpenRouting={() => navigate("routing")}
+        onOpenAdmin={() => navigate("admin")}
+      />
+    );
   }
 
   if (!profile) {
@@ -97,7 +137,8 @@ export default function App() {
       <>
         <ProfileSelect
           onSelect={setProfile}
-          onAdmin={() => setAdminOpen(true)}
+          onAdmin={() => navigate("admin")}
+          onProject={() => navigate("landing")}
         />
         <FeedbackWidget />
       </>
